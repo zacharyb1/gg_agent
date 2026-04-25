@@ -1,6 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { buildLightweightFatality } from "~/lib/fatality-light";
+import { api } from "~/trpc/react";
 import { createMusicEngine, type MusicEngine } from "./music";
 import { createSfxEngine, type SfxEngine } from "./sfx";
 
@@ -103,6 +106,13 @@ type Obstacle =
 
 type Phase = "menu" | "playing" | "gameover";
 
+/** Loaded client-side after tRPC returns data URLs; all three or none. */
+type ThemePack = {
+	arena: HTMLImageElement;
+	enemy: HTMLImageElement;
+	ally: HTMLImageElement;
+};
+
 type GameRuntime = {
 	phase: Phase;
 	player: Player;
@@ -120,6 +130,10 @@ type GameRuntime = {
 	bannerTime: number;
 	bannerMaxTime: number;
 	kills: number;
+	/** Kills with the player character's weapon only (excludes allies). */
+	playerKills: number;
+	/** Set in updateBullets on player last-hit when the wave is cleared. Cleared in rAF. */
+	fatalityTrigger: null | { playerKills: number; wave: number };
 	shakeTime: number;
 	shakeMag: number;
 	keys: Set<string>;
@@ -162,6 +176,15 @@ function createBlobGradient(
 const BRAWL_OUT = "#0f1a2c";
 const BRAWL_OUTW = 2.6;
 const BRAWL_OUT_SOFT = 1.5;
+/** Brawl arena UI (gold rim + deep blue) */
+const BS_GOLD = "#f8e070";
+const BS_GOLD_D = "#d8a820";
+const BS_RIM = "#0c2038";
+const BS_SAND_1 = "#ead8b0";
+const BS_SAND_2 = "#dcc8a0";
+const BS_SAND_3 = "#c9b08a";
+const BS_GRASS_1 = "#5fd050";
+const BS_GRASS_2 = "#3eb838";
 
 /** Top-down polymer handgun: barrel along +x from origin. `L` = overall length. */
 function drawHandgunTopDown(ctx: CanvasRenderingContext2D, L: number) {
@@ -256,6 +279,86 @@ function drawHandgunTopDown(ctx: CanvasRenderingContext2D, L: number) {
 	ctx.stroke();
 }
 
+/** Top-down “phonk bass cannon” — 808 + woofer, barrel along +x. */
+function drawPhonkBassGunTopDown(ctx: CanvasRenderingContext2D, L: number) {
+	const sw = L * 0.2;
+	const s0 = L * 0.05;
+	const sBody = s0 + L * 0.38;
+	// Chassis: neon phonk (purple / magenta / cyan)
+	const ch = ctx.createLinearGradient(s0, -sw, sBody, sw);
+	ch.addColorStop(0, "#1a0a2e");
+	ch.addColorStop(0.35, "#4a1a5c");
+	ch.addColorStop(0.6, "#0a1a2a");
+	ch.addColorStop(0.75, "#2a4a5c");
+	ch.addColorStop(1, "#0d0618");
+	ctx.beginPath();
+	ctx.roundRect(s0, -sw, sBody - s0, sw * 2, L * 0.04);
+	ctx.fillStyle = ch;
+	ctx.fill();
+	ctx.strokeStyle = BRAWL_OUT;
+	ctx.lineWidth = 0.9;
+	ctx.stroke();
+	// RGB strip hint
+	for (const i of [0, 1, 2, 3] as const) {
+		ctx.fillStyle =
+			i % 3 === 0 ? "#ff2a6a" : i % 3 === 1 ? "#00c8ff" : "#8a4aff";
+		ctx.beginPath();
+		ctx.roundRect(s0 + 3 + i * 3.2, -sw * 0.55, 1.2, 2.2, 0.2);
+		ctx.fill();
+	}
+	// “Sub” / woofer at muzzle (bass is the projectile)
+	const mx = sBody + L * 0.14;
+	const cone = ctx.createRadialGradient(mx, 0, 0, mx, 0, L * 0.11);
+	cone.addColorStop(0, "#0a0a0e");
+	cone.addColorStop(0.45, "#1a0a1a");
+	cone.addColorStop(0.75, "#2a1a3a");
+	cone.addColorStop(1, "#0a0a0e");
+	ctx.beginPath();
+	ctx.ellipse(mx, 0, L * 0.1, sw * 0.95, 0, 0, Math.PI * 2);
+	ctx.fillStyle = cone;
+	ctx.fill();
+	ctx.strokeStyle = BRAWL_OUT;
+	ctx.lineWidth = 0.85;
+	ctx.stroke();
+	// Grille
+	for (let g = 0; g < 3; g++) {
+		const gy = (g - 1) * sw * 0.35;
+		ctx.beginPath();
+		ctx.ellipse(mx - 1, gy, L * 0.06, 1.1, 0, 0, Math.PI);
+		ctx.strokeStyle = "rgba(0, 200, 255, 0.2)";
+		ctx.lineWidth = 0.4;
+		ctx.stroke();
+	}
+	// 808 mark
+	const nf = `bold ${Math.max(3.5, L * 0.05)}px ui-sans-serif, system-ui, sans-serif`;
+	ctx.font = nf;
+	ctx.fillStyle = "rgba(255, 80, 180, 0.85)";
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.fillText("808", s0 + (sBody - s0) * 0.45, 0.5);
+	// Bass “waves”
+	ctx.strokeStyle = "rgba(0, 255, 200, 0.35)";
+	ctx.lineWidth = 0.4;
+	for (const k of [0, 1, 2] as const) {
+		const wx = sBody - L * 0.12 + k * 4;
+		ctx.beginPath();
+		ctx.arc(wx, 0, 3 + k * 0.5, 0, Math.PI * 2);
+		ctx.stroke();
+	}
+	// Handle / sub grip
+	const gg = ctx.createLinearGradient(0, L * 0.08, 0, L * 0.32);
+	gg.addColorStop(0, "#2a0a1a");
+	gg.addColorStop(0.5, "#4a0a2a");
+	gg.addColorStop(1, "#0a0a0a");
+	ctx.beginPath();
+	ctx.roundRect(s0 - L * 0.12, L * 0.1, L * 0.18, L * 0.2, 2);
+	ctx.fillStyle = gg;
+	ctx.fill();
+	ctx.strokeStyle = BRAWL_OUT;
+	ctx.lineWidth = 0.65;
+	ctx.stroke();
+}
+
 function rand(min: number, max: number) {
 	return min + Math.random() * (max - min);
 }
@@ -343,6 +446,110 @@ function generateObstacles(): Obstacle[] {
 		obstacles.push(candidate);
 	}
 	return obstacles;
+}
+
+/** Point on obstacle boundary closest to p (for steering). */
+function closestSurfacePoint(
+	p: { x: number; y: number },
+	o: Obstacle,
+): { x: number; y: number } {
+	if (o.kind === "barrel") {
+		const dx = p.x - o.x;
+		const dy = p.y - o.y;
+		const d = Math.hypot(dx, dy) || 1e-5;
+		return { x: o.x + (dx / d) * o.r, y: o.y + (dy / d) * o.r };
+	}
+	return {
+		x: clamp(p.x, o.x, o.x + o.w),
+		y: clamp(p.y, o.y, o.y + o.h),
+	};
+}
+
+/**
+ * Push away from obstacle surfaces within `avoidRadius` (tactical steering, not
+ * the physics resolve).
+ */
+function obstacleRepelVector(
+	p: Vec,
+	obstacles: Obstacle[],
+	avoidRadius: number,
+	power: number,
+): Vec {
+	let ax = 0;
+	let ay = 0;
+	for (const o of obstacles) {
+		const s = closestSurfacePoint(p, o);
+		const dx = p.x - s.x;
+		const dy = p.y - s.y;
+		const d = Math.hypot(dx, dy);
+		if (d < avoidRadius && d > 0.02) {
+			const t = (avoidRadius - d) / avoidRadius;
+			ax += (dx / d) * t;
+			ay += (dy / d) * t;
+		}
+	}
+	const m = Math.hypot(ax, ay);
+	if (m < 0.0001) return { x: 0, y: 0 };
+	return { x: (ax / m) * power, y: (ay / m) * power };
+}
+
+function allyMicroStep(
+	pos: Vec,
+	angle: number,
+	step: number,
+	r: number,
+	obstacles: Obstacle[],
+) {
+	pos.x += Math.cos(angle) * step;
+	pos.y += Math.sin(angle) * step;
+	resolveObstacleCollision(pos, r, obstacles);
+	pos.x = clamp(pos.x, r, ARENA_W - r);
+	pos.y = clamp(pos.y, r, ARENA_H - r);
+}
+
+/**
+ * Tries a short arc of headings around the seek + repel blend; keeps the
+ * sub-step that gets closest to the target after 4 micro collision resolves.
+ */
+function bestAllyStepToward(
+	s: GameRuntime,
+	ally: { pos: Vec },
+	targetX: number,
+	targetY: number,
+	budget: number,
+): void {
+	if (budget < 0.5) return;
+	const nudge = obstacleRepelVector(ally.pos, s.obstacles, 92, 1);
+	const sx = targetX - ally.pos.x;
+	const sy = targetY - ally.pos.y;
+	const sdist = Math.hypot(sx, sy);
+	if (sdist < 0.1) return;
+	const baseA = Math.atan2(sy + nudge.y * 14, sx + nudge.x * 14);
+	// 13 headings: direct + flanks
+	const dAng = (i: number) => {
+		if (i === 0) return 0;
+		const sgn = i % 2 === 0 ? 1 : -1;
+		const k = ((i + 1) / 2) * 0.4;
+		return sgn * k;
+	};
+	let bestA = baseA;
+	let bestScore = Number.POSITIVE_INFINITY;
+	const h = budget / 4;
+	for (let i = 0; i < 13; i++) {
+		const a = baseA + dAng(i);
+		const test = { x: ally.pos.x, y: ally.pos.y };
+		for (let st = 0; st < 4; st++) {
+			allyMicroStep(test, a, h, ALLY_RADIUS, s.obstacles);
+		}
+		const score = Math.hypot(test.x - targetX, test.y - targetY);
+		if (score < bestScore) {
+			bestScore = score;
+			bestA = a;
+		}
+	}
+	for (let st = 0; st < 4; st++) {
+		allyMicroStep(ally.pos, bestA, h, ALLY_RADIUS, s.obstacles);
+	}
 }
 
 function resolveObstacleCollision(
@@ -492,6 +699,8 @@ function createInitialState(): GameRuntime {
 		bannerTime: 0,
 		bannerMaxTime: 1,
 		kills: 0,
+		playerKills: 0,
+		fatalityTrigger: null,
 		shakeTime: 0,
 		shakeMag: 0,
 		keys: new Set(),
@@ -594,8 +803,22 @@ function fireBullet(
 	});
 }
 
-function spawnMuzzleFlash(s: GameRuntime, pos: Vec, angle: number) {
+function spawnMuzzleFlash(
+	s: GameRuntime,
+	pos: Vec,
+	angle: number,
+	opts?: { phonk?: boolean },
+) {
 	for (let i = 0; i < 5; i++) {
+		const c = opts?.phonk
+			? chance(0.4)
+				? "#00e0ff"
+				: chance(0.5)
+					? "#ff1a9e"
+					: "#8a5cff"
+			: chance(0.5)
+				? "#fff2a8"
+				: "#ffd24a";
 		s.particles.push({
 			pos: { x: pos.x + Math.cos(angle) * 18, y: pos.y + Math.sin(angle) * 18 },
 			vel: {
@@ -604,7 +827,7 @@ function spawnMuzzleFlash(s: GameRuntime, pos: Vec, angle: number) {
 			},
 			life: 0.18,
 			maxLife: 0.18,
-			color: chance(0.5) ? "#fff2a8" : "#ffd24a",
+			color: c,
 			size: rand(2, 4.5),
 		});
 	}
@@ -682,7 +905,7 @@ function updatePlayer(s: GameRuntime, dt: number) {
 	p.hitFlash = Math.max(0, p.hitFlash - dt);
 	if (s.shooting && p.cooldown <= 0) {
 		fireBullet(s, p.pos, p.angle, BULLET_DAMAGE, "player");
-		spawnMuzzleFlash(s, p.pos, p.angle);
+		spawnMuzzleFlash(s, p.pos, p.angle, { phonk: true });
 		s.sfx?.play("playerShoot");
 		p.cooldown = PLAYER_FIRE_RATE;
 	}
@@ -716,14 +939,19 @@ function updateAllies(s: GameRuntime, dt: number) {
 				a.cooldown = ALLY_FIRE_RATE;
 			}
 		} else {
-			// No threats: only regroup if the player has wandered out of leash.
-			const pdx = s.player.pos.x - a.pos.x;
-			const pdy = s.player.pos.y - a.pos.y;
+			// No threats: hold a formation slot near the player; close in if out of leash.
+			const anchorX = s.player.pos.x + a.followOffset.x;
+			const anchorY = s.player.pos.y + a.followOffset.y;
+			const pdx = anchorX - a.pos.x;
+			const pdy = anchorY - a.pos.y;
 			const pd = Math.hypot(pdx, pdy);
 			if (pd > ALLY_LEASH) {
-				const t = (pd - ALLY_LEASH * 0.6) / pd;
+				const t = (pd - ALLY_LEASH * 0.55) / pd;
 				desiredX = a.pos.x + pdx * t;
 				desiredY = a.pos.y + pdy * t;
+			} else if (pd > 12) {
+				desiredX = anchorX;
+				desiredY = anchorY;
 			}
 			a.angle = s.player.angle;
 		}
@@ -744,14 +972,10 @@ function updateAllies(s: GameRuntime, dt: number) {
 		const mdx = desiredX - a.pos.x;
 		const mdy = desiredY - a.pos.y;
 		const md = Math.hypot(mdx, mdy);
-		if (md > 4) {
+		if (md > 3) {
 			const move = Math.min(md, ALLY_SPEED * dt);
-			a.pos.x += (mdx / md) * move;
-			a.pos.y += (mdy / md) * move;
+			bestAllyStepToward(s, a, desiredX, desiredY, move);
 		}
-		resolveObstacleCollision(a.pos, ALLY_RADIUS, s.obstacles);
-		a.pos.x = clamp(a.pos.x, ALLY_RADIUS, ARENA_W - ALLY_RADIUS);
-		a.pos.y = clamp(a.pos.y, ALLY_RADIUS, ARENA_H - ALLY_RADIUS);
 	}
 }
 
@@ -778,6 +1002,15 @@ function updateZombies(s: GameRuntime, dt: number) {
 		const wobbleScale = z.type === "runner" ? 0.25 : 0.55;
 		z.vel.x = (dx / d) * z.speed + Math.cos(z.wobble) * 14 * wobbleScale;
 		z.vel.y = (dy / d) * z.speed + Math.sin(z.wobble * 0.7) * 10 * wobbleScale;
+		const zd = obstacleRepelVector(z.pos, s.obstacles, 72, 1);
+		z.vel.x += zd.x * 38 * dt;
+		z.vel.y += zd.y * 38 * dt;
+		const cap = z.speed * 1.15;
+		const sp = Math.hypot(z.vel.x, z.vel.y) || 1;
+		if (sp > cap) {
+			z.vel.x = (z.vel.x / sp) * cap;
+			z.vel.y = (z.vel.y / sp) * cap;
+		}
 		z.pos.x += z.vel.x * dt;
 		z.pos.y += z.vel.y * dt;
 		resolveObstacleCollision(z.pos, z.radius, s.obstacles);
@@ -827,6 +1060,7 @@ function resolveZombieCollisions(s: GameRuntime) {
 	}
 }
 
+/** Move bullets; then resolve **player** hits before **ally** so squadmates can’t take the last frag in the same frame. */
 function updateBullets(s: GameRuntime, dt: number) {
 	for (let i = s.bullets.length - 1; i >= 0; i--) {
 		const b = s.bullets[i];
@@ -856,38 +1090,54 @@ function updateBullets(s: GameRuntime, dt: number) {
 				});
 			}
 			s.bullets.splice(i, 1);
-			continue;
 		}
-		let hit = false;
-		for (let j = s.zombies.length - 1; j >= 0; j--) {
-			const z = s.zombies[j];
-			if (!z) continue;
-			const dx = z.pos.x - b.pos.x;
-			const dy = z.pos.y - b.pos.y;
-			if (dx * dx + dy * dy < (z.radius + 4) * (z.radius + 4)) {
-				z.hp -= b.damage;
-				z.hitFlash = 0.1;
-				spawnBlood(s, b.pos, 4);
-				s.texts.push({
-					pos: { x: z.pos.x, y: z.pos.y - z.radius },
-					vel: { x: 0, y: -30 },
-					text: `${Math.round(b.damage)}`,
-					life: 0.6,
-					color: b.team === "player" ? "#ffe26a" : "#a8e6ff",
-				});
-				if (z.hp <= 0) {
-					s.zombies.splice(j, 1);
-					s.kills += 1;
-					spawnBlood(s, z.pos, 16);
-					s.sfx?.play("zombieKill");
-				} else {
-					s.sfx?.play("zombieHit");
+	}
+	// Player first: allies can’t register the last frag over your shot the same frame.
+	for (const team of ["player", "ally"] as const) {
+		for (let i = s.bullets.length - 1; i >= 0; i--) {
+			const b = s.bullets[i];
+			if (!b || b.team !== team) continue;
+			let hit = false;
+			for (let j = s.zombies.length - 1; j >= 0; j--) {
+				const z = s.zombies[j];
+				if (!z) continue;
+				const dx = z.pos.x - b.pos.x;
+				const dy = z.pos.y - b.pos.y;
+				if (dx * dx + dy * dy < (z.radius + 4) * (z.radius + 4)) {
+					z.hp -= b.damage;
+					z.hitFlash = 0.1;
+					spawnBlood(s, b.pos, 4);
+					s.texts.push({
+						pos: { x: z.pos.x, y: z.pos.y - z.radius },
+						vel: { x: 0, y: -30 },
+						text: `${Math.round(b.damage)}`,
+						life: 0.6,
+						color: b.team === "player" ? "#ffe26a" : "#a8e6ff",
+					});
+					if (z.hp <= 0) {
+						s.zombies.splice(j, 1);
+						s.kills += 1;
+						if (b.team === "player") {
+							s.playerKills += 1;
+							// You ended the round (all threats down); only runs on a player killing blow
+							if (s.zombies.length === 0 && s.zombiesToSpawn === 0) {
+								s.fatalityTrigger = {
+									playerKills: s.playerKills,
+									wave: s.wave,
+								};
+							}
+						}
+						spawnBlood(s, z.pos, 16);
+						s.sfx?.play("zombieKill");
+					} else {
+						s.sfx?.play("zombieHit");
+					}
+					hit = true;
+					break;
 				}
-				hit = true;
-				break;
 			}
+			if (hit) s.bullets.splice(i, 1);
 		}
-		if (hit) s.bullets.splice(i, 1);
 	}
 }
 
@@ -942,23 +1192,34 @@ function spawnLogic(s: GameRuntime, dt: number) {
 	}
 }
 
-function render(ctx: CanvasRenderingContext2D, s: GameRuntime) {
+function render(
+	ctx: CanvasRenderingContext2D,
+	s: GameRuntime,
+	theme: ThemePack | null,
+) {
 	ctx.save();
 	if (s.shakeTime > 0) {
 		const m = s.shakeMag * (s.shakeTime / 0.18);
 		ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
 	}
-	drawGround(ctx);
+	drawGround(ctx, theme?.arena ?? null);
 
 	type DrawItem = { y: number; draw: () => void };
 	const items: DrawItem[] = [];
+	const allySkin = theme?.ally ?? null;
+	const enemySkin = theme?.enemy ?? null;
 	for (const a of s.allies) {
-		if (a.alive) items.push({ y: a.pos.y, draw: () => drawAlly(ctx, a) });
-		else items.push({ y: a.pos.y, draw: () => drawDeadAlly(ctx, a) });
+		if (a.alive)
+			items.push({ y: a.pos.y, draw: () => drawAlly(ctx, a, allySkin) });
+		else
+			items.push({ y: a.pos.y, draw: () => drawDeadAlly(ctx, a, allySkin) });
 	}
 	items.push({ y: s.player.pos.y, draw: () => drawPlayer(ctx, s.player) });
 	for (const z of s.zombies)
-		items.push({ y: z.pos.y, draw: () => drawZombie(ctx, z) });
+		items.push({
+			y: z.pos.y,
+			draw: () => drawZombie(ctx, z, enemySkin),
+		});
 	for (const o of s.obstacles)
 		items.push({ y: obstacleBottomY(o), draw: () => drawObstacle(ctx, o) });
 	items.sort((a, b) => a.y - b.y);
@@ -996,104 +1257,159 @@ function render(ctx: CanvasRenderingContext2D, s: GameRuntime) {
 function drawObstacle(ctx: CanvasRenderingContext2D, o: Obstacle) {
 	ctx.save();
 	if (o.kind === "barrel") {
-		// Brawl TNT-style barrel
 		ctx.beginPath();
 		ctx.ellipse(
-			o.x,
-			o.y + o.r * 0.55,
-			o.r * 0.95,
-			o.r * 0.38,
+			o.x + o.r * 0.1,
+			o.y + o.r * 0.58,
+			o.r * 0.98,
+			o.r * 0.4,
 			0,
 			0,
 			Math.PI * 2,
 		);
-		ctx.fillStyle = "rgba(0,0,0,0.28)";
+		ctx.fillStyle = "rgba(0,0,0,0.32)";
 		ctx.fill();
 		const bg = ctx.createRadialGradient(
-			o.x - o.r * 0.25,
-			o.y - o.r * 0.2,
+			o.x - o.r * 0.22,
+			o.y - o.r * 0.18,
 			0,
-			o.x,
-			o.y,
-			o.r,
+			o.x + o.r * 0.05,
+			o.y + o.r * 0.05,
+			o.r * 1.05,
 		);
-		bg.addColorStop(0, "#e86850");
-		bg.addColorStop(0.45, "#c84030");
-		bg.addColorStop(1, "#781018");
+		bg.addColorStop(0, "#f87858");
+		bg.addColorStop(0.35, "#d84830");
+		bg.addColorStop(0.85, "#a01818");
+		bg.addColorStop(1, "#500808");
 		ctx.beginPath();
 		ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
 		ctx.fillStyle = bg;
 		ctx.fill();
+		ctx.beginPath();
+		ctx.arc(o.x, o.y - o.r * 0.25, o.r * 0.65, Math.PI * 1.15, Math.PI * 1.85);
+		ctx.strokeStyle = "rgba(255,255,255,0.22)";
+		ctx.lineWidth = 2;
+		ctx.stroke();
+		ctx.beginPath();
+		ctx.ellipse(
+			o.x - o.r * 0.35,
+			o.y - o.r * 0.25,
+			o.r * 0.25,
+			o.r * 0.4,
+			-0.4,
+			0,
+			Math.PI * 2,
+		);
+		ctx.strokeStyle = "rgba(255,255,255,0.12)";
+		ctx.lineWidth = 1.2;
+		ctx.stroke();
 		ctx.strokeStyle = BRAWL_OUT;
 		ctx.lineWidth = BRAWL_OUTW;
-		ctx.stroke();
-		ctx.strokeStyle = "rgba(255,255,255,0.28)";
-		ctx.lineWidth = 1;
 		ctx.beginPath();
-		ctx.arc(o.x - o.r * 0.2, o.y - o.r * 0.2, o.r * 0.35, 0, Math.PI * 2);
+		ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
 		ctx.stroke();
-		ctx.fillStyle = "#f0e8d8";
-		ctx.fillRect(o.x - o.r * 0.55, o.y - o.r * 0.12, o.r * 1.1, o.r * 0.24);
+		ctx.fillStyle = "#f0e4d0";
+		ctx.fillRect(o.x - o.r * 0.55, o.y - o.r * 0.1, o.r * 1.1, o.r * 0.22);
 		ctx.strokeStyle = BRAWL_OUT;
 		ctx.lineWidth = BRAWL_OUT_SOFT;
-		ctx.strokeRect(o.x - o.r * 0.55, o.y - o.r * 0.12, o.r * 1.1, o.r * 0.24);
-		ctx.fillStyle = "#1a1a1a";
+		ctx.strokeRect(o.x - o.r * 0.55, o.y - o.r * 0.1, o.r * 1.1, o.r * 0.22);
+		for (const sx of [0, Math.PI] as const) {
+			ctx.beginPath();
+			ctx.moveTo(o.x + Math.cos(sx) * o.r * 0.1, o.y - o.r * 0.12);
+			ctx.lineTo(o.x + Math.cos(sx) * o.r * 0.1, o.y + o.r * 0.1);
+			ctx.strokeStyle = "rgba(0,0,0,0.15)";
+			ctx.lineWidth = 1.2;
+			ctx.stroke();
+		}
+		ctx.fillStyle = "#0c0c0c";
 		ctx.font = `bold ${Math.max(8, o.r * 0.55)}px sans-serif`;
 		ctx.textAlign = "center";
 		ctx.textBaseline = "middle";
 		ctx.fillText("!", o.x, o.y + o.r * 0.02);
 	} else if (o.kind === "crate") {
-		ctx.fillStyle = "rgba(0,0,0,0.3)";
-		ctx.fillRect(o.x + 4, o.y + 6, o.w, o.h);
+		const dw = 5;
+		const dh = 5;
+		ctx.fillStyle = "rgba(0,0,0,0.35)";
+		ctx.fillRect(o.x + dw, o.y + dh, o.w, o.h);
 		const g = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
-		g.addColorStop(0, "#d4a86a");
-		g.addColorStop(0.5, "#9a6a35");
-		g.addColorStop(1, "#5a3a1a");
+		g.addColorStop(0, "#e8a868");
+		g.addColorStop(0.45, "#a86828");
+		g.addColorStop(1, "#503020");
 		ctx.fillStyle = g;
 		ctx.fillRect(o.x, o.y, o.w, o.h);
-		ctx.strokeStyle = BRAWL_OUT;
-		ctx.lineWidth = BRAWL_OUTW;
-		ctx.strokeRect(o.x, o.y, o.w, o.h);
-		const plank = 10;
+		const plank = 9;
 		for (let py = o.y + plank; py < o.y + o.h - 2; py += plank) {
 			ctx.beginPath();
 			ctx.moveTo(o.x + 2, py);
 			ctx.lineTo(o.x + o.w - 2, py);
-			ctx.strokeStyle = "rgba(0,0,0,0.22)";
+			ctx.strokeStyle = "rgba(0,0,0,0.2)";
+			ctx.lineWidth = 1.1;
+			ctx.stroke();
+		}
+		ctx.strokeStyle = "rgba(255,255,255,0.12)";
+		ctx.beginPath();
+		ctx.moveTo(o.x + 2, o.y + 1);
+		ctx.lineTo(o.x + o.w - 2, o.y + 1);
+		ctx.stroke();
+		for (const vx of [o.w * 0.2, o.w * 0.5, o.w * 0.8] as const) {
+			const sx = o.x + vx;
+			ctx.beginPath();
+			ctx.moveTo(sx, o.y + 2);
+			ctx.lineTo(sx, o.y + o.h - 2);
+			ctx.strokeStyle = "rgba(90, 95, 105, 0.85)";
+			ctx.lineWidth = 3.5;
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.moveTo(sx, o.y + 2);
+			ctx.lineTo(sx, o.y + o.h - 2);
+			ctx.strokeStyle = "rgba(200, 205, 210, 0.35)";
 			ctx.lineWidth = 1.2;
 			ctx.stroke();
 		}
-		ctx.strokeStyle = "rgba(255,255,255,0.2)";
-		ctx.beginPath();
-		ctx.moveTo(o.x + 3, o.y + 3);
-		ctx.lineTo(o.x + o.w - 3, o.y + o.h - 3);
-		ctx.stroke();
 		for (const [dx, dy] of [
-			[2, 2],
-			[o.w - 2, 2],
+			[3, 3],
+			[o.w - 3, 3],
+			[3, o.h - 3],
+			[o.w - 3, o.h - 3],
 		] as const) {
-			ctx.fillStyle = "#5a5a5a";
+			ctx.fillStyle = "#6a6e78";
 			ctx.beginPath();
-			ctx.arc(o.x + dx, o.y + dy, 3, 0, Math.PI * 2);
+			ctx.arc(o.x + dx, o.y + dy, 2.2, 0, Math.PI * 2);
 			ctx.fill();
-			ctx.strokeStyle = BRAWL_OUT;
-			ctx.lineWidth = 0.8;
-			ctx.stroke();
+			ctx.fillStyle = "#2a2c30";
+			ctx.beginPath();
+			ctx.arc(o.x + dx, o.y + dy, 0.8, 0, Math.PI * 2);
+			ctx.fill();
 		}
+		ctx.strokeStyle = BRAWL_OUT;
+		ctx.lineWidth = BRAWL_OUTW;
+		ctx.strokeRect(o.x, o.y, o.w, o.h);
 	} else {
-		// Stone block wall (Brawl)
-		ctx.fillStyle = "rgba(0,0,0,0.3)";
-		ctx.fillRect(o.x + 2, o.y + 5, o.w, o.h);
+		// Brawl-style cobble block (mortar + bevel)
+		const sh = 4;
+		ctx.fillStyle = "rgba(0,0,0,0.35)";
+		ctx.fillRect(o.x + sh, o.y + sh, o.w, o.h);
 		const g2 = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
-		g2.addColorStop(0, "#b8a898");
-		g2.addColorStop(0.4, "#8a7a6a");
-		g2.addColorStop(1, "#4a3a2c");
+		g2.addColorStop(0, "#c8b8a8");
+		g2.addColorStop(0.35, "#8c7a6a");
+		g2.addColorStop(1, "#3c3028");
 		ctx.fillStyle = g2;
 		ctx.fillRect(o.x, o.y, o.w, o.h);
 		const isHoriz = o.w > o.h;
 		const count = isHoriz
-			? Math.max(2, Math.round(o.w / 28))
-			: Math.max(2, Math.round(o.h / 28));
+			? Math.max(2, Math.round(o.w / 24))
+			: Math.max(2, Math.round(o.h / 24));
+		for (let j = 0; j < count; j++) {
+			const s = 0.88 + (j % 3) * 0.04;
+			ctx.fillStyle = `rgb(${Math.round(140 * s)},${Math.round(120 * s)},${Math.round(100 * s)})`;
+			if (isHoriz) {
+				const wSeg = o.w / count;
+				ctx.fillRect(o.x + j * wSeg + 1, o.y + 2, wSeg - 2, o.h - 3);
+			} else {
+				const hSeg = o.h / count;
+				ctx.fillRect(o.x + 2, o.y + j * hSeg + 1, o.w - 3, hSeg - 2);
+			}
+		}
 		for (let i = 1; i < count; i++) {
 			ctx.beginPath();
 			if (isHoriz) {
@@ -1105,10 +1421,17 @@ function drawObstacle(ctx: CanvasRenderingContext2D, o: Obstacle) {
 				ctx.moveTo(o.x + 1, y);
 				ctx.lineTo(o.x + o.w - 1, y);
 			}
-			ctx.strokeStyle = "rgba(0,0,0,0.2)";
-			ctx.lineWidth = 1.1;
+			ctx.strokeStyle = "rgba(20, 12, 8, 0.45)";
+			ctx.lineWidth = 1.6;
 			ctx.stroke();
 		}
+		const g3 = ctx.createLinearGradient(o.x, o.y, 0, o.y + 4);
+		g3.addColorStop(0, "rgba(255,255,255,0.18)");
+		g3.addColorStop(1, "rgba(0,0,0,0)");
+		ctx.fillStyle = g3;
+		ctx.fillRect(o.x, o.y, o.w, 3);
+		ctx.fillStyle = "rgba(0,0,0,0.2)";
+		ctx.fillRect(o.x, o.y + o.h - 3, o.w, 3);
 		ctx.strokeStyle = BRAWL_OUT;
 		ctx.lineWidth = BRAWL_OUTW;
 		ctx.strokeRect(o.x, o.y, o.w, o.h);
@@ -1116,76 +1439,161 @@ function drawObstacle(ctx: CanvasRenderingContext2D, o: Obstacle) {
 	ctx.restore();
 }
 
-function drawGround(ctx: CanvasRenderingContext2D) {
-	// Brawl: sunny grass field (lime → forest green)
+function drawGround(
+	ctx: CanvasRenderingContext2D,
+	bgImage: HTMLImageElement | null,
+) {
+	if (bgImage?.complete) {
+		ctx.drawImage(bgImage, 0, 0, ARENA_W, ARENA_H);
+		ctx.fillStyle = "rgba(6, 18, 42, 0.2)";
+		ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+		return;
+	}
 	const cx = ARENA_W / 2;
 	const cy = ARENA_H / 2;
-	const g = ctx.createRadialGradient(
-		cx * 0.9,
-		cy * 0.75,
-		40,
-		cx,
-		cy,
-		Math.max(ARENA_W, ARENA_H) * 0.72,
-	);
-	g.addColorStop(0, "#9fe860");
-	g.addColorStop(0.35, "#6dd23e");
-	g.addColorStop(0.7, "#4ab028");
-	g.addColorStop(1, "#2d7818");
-	ctx.fillStyle = g;
+	// --- Brawl Stars–style floor: warm sand, readable tile, grass “islands” ---
+	const baseG = ctx.createLinearGradient(0, 0, ARENA_W, ARENA_H);
+	baseG.addColorStop(0, "#f0e0c0");
+	baseG.addColorStop(0.35, BS_SAND_1);
+	baseG.addColorStop(0.72, BS_SAND_2);
+	baseG.addColorStop(1, BS_SAND_3);
+	ctx.fillStyle = baseG;
 	ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-	// Soft grass tufts (deterministic, no flicker)
-	for (let i = 0; i < 90; i++) {
-		const x = ((i * 127 + i * i * 0.1) | 0) % (ARENA_W - 24);
-		const y = ((i * 83 + 37) | 0) % (ARENA_H - 24);
-		const rad = 5 + (i % 6) * 2.2;
-		ctx.globalAlpha = 0.1 + (i % 5) * 0.04;
-		ctx.beginPath();
-		ctx.arc(12 + x, 12 + y, rad, 0, Math.PI * 2);
-		ctx.fillStyle = i % 3 === 0 ? "#1a5a0c" : "#b8f070";
-		ctx.fill();
-	}
-	ctx.globalAlpha = 1;
-	// Dark “bush” patches (Brawl cover grass look)
-	for (let i = 0; i < 16; i++) {
-		const bx = 40 + ((i * 97) % (ARENA_W - 100));
-		const by = 30 + ((i * 71 + i * 7) % (ARENA_H - 80));
-		ctx.beginPath();
-		ctx.ellipse(bx, by, 22 + (i % 4) * 5, 16 + (i % 3) * 3, 0, 0, Math.PI * 2);
-		ctx.fillStyle = "rgba(25, 90, 18, 0.22)";
-		ctx.fill();
-	}
-	// Subtle path / tile sheen
-	const step = 48;
-	for (let x = 0; x < ARENA_W; x += step) {
-		for (let y = 0; y < ARENA_H; y += step) {
-			const tx = x + 1;
-			const ty = y + 1;
+	// Staggered isometric diamond tiles (Supercell sand arenas)
+	const rw = 28;
+	const rh = 14;
+	for (let row = -1; row * 2 * rh < ARENA_H + rh * 2; row++) {
+		for (let col = -1; col * rw < ARENA_W + rw; col++) {
+			const ox = (row % 2) * (rw * 0.5);
+			const px = col * rw + ox;
+			const py = row * 2 * rh;
+			const t = (col + row) % 3;
+			const c = t === 0 ? BS_SAND_1 : t === 1 ? BS_SAND_2 : BS_SAND_3;
 			ctx.beginPath();
-			ctx.moveTo(tx, ty);
-			ctx.lineTo(tx + step * 0.4, ty);
-			ctx.lineTo(tx + step * 0.2, ty + step * 0.4);
+			ctx.moveTo(px, py);
+			ctx.lineTo(px + rw * 0.5, py + rh);
+			ctx.lineTo(px, py + rh * 2);
+			ctx.lineTo(px - rw * 0.5, py + rh);
 			ctx.closePath();
-			ctx.fillStyle = "rgba(255,255,255,0.035)";
+			ctx.fillStyle = c;
 			ctx.fill();
+			ctx.strokeStyle = "rgba(0,0,0,0.045)";
+			ctx.lineWidth = 0.6;
+			ctx.stroke();
 		}
 	}
-	// Brawl gold arena rim
-	const rim = ctx.createLinearGradient(0, 0, ARENA_W, ARENA_H);
-	rim.addColorStop(0, "#fff6c8");
-	rim.addColorStop(0.3, "#f0c850");
-	rim.addColorStop(0.5, "#d8a020");
-	rim.addColorStop(0.7, "#f0c850");
-	rim.addColorStop(1, "#fff6c8");
-	ctx.strokeStyle = rim;
-	ctx.lineWidth = 7;
-	ctx.strokeRect(2, 2, ARENA_W - 4, ARENA_H - 4);
-	ctx.strokeStyle = "rgba(255,255,255,0.55)";
-	ctx.lineWidth = 1.2;
+	// Top-left “sun” on sand
+	const sun = ctx.createRadialGradient(
+		ARENA_W * 0.2,
+		ARENA_H * 0.12,
+		0,
+		ARENA_W * 0.32,
+		ARENA_H * 0.28,
+		Math.max(ARENA_W, ARENA_H) * 0.55,
+	);
+	sun.addColorStop(0, "rgba(255, 248, 220, 0.55)");
+	sun.addColorStop(0.45, "rgba(255, 255, 230, 0.12)");
+	sun.addColorStop(1, "rgba(255, 255, 255, 0)");
+	ctx.fillStyle = sun;
+	ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+	// Distinct Brawl green patches (brighter in center, darker edge)
+	const grassBlobs: [number, number, number, number, number][] = [
+		[0.08, 0.1, 0.14, 0.11, -0.12],
+		[0.88, 0.12, 0.12, 0.1, 0.15],
+		[0.12, 0.82, 0.16, 0.12, 0.05],
+		[0.86, 0.8, 0.14, 0.12, -0.08],
+		[0.5, 0.18, 0.2, 0.14, 0],
+		[0.22, 0.45, 0.18, 0.2, 0.2],
+		[0.68, 0.42, 0.16, 0.22, -0.15],
+		[0.48, 0.75, 0.22, 0.12, 0.08],
+	];
+	for (const [fx, fy, frx, fry, ang] of grassBlobs) {
+		const bx = ARENA_W * fx;
+		const by = ARENA_H * fy;
+		const g = ctx.createRadialGradient(
+			bx,
+			by - ARENA_H * 0.02,
+			0,
+			bx,
+			by,
+			ARENA_W * frx * 0.9,
+		);
+		g.addColorStop(0, BS_GRASS_1);
+		g.addColorStop(0.55, BS_GRASS_2);
+		g.addColorStop(0.88, "rgba(30, 120, 40, 0.35)");
+		g.addColorStop(1, "rgba(0,0,0,0)");
+		ctx.beginPath();
+		ctx.ellipse(bx, by, ARENA_W * frx, ARENA_H * fry, ang, 0, Math.PI * 2);
+		ctx.fillStyle = g;
+		ctx.fill();
+		ctx.beginPath();
+		ctx.ellipse(
+			bx - ARENA_W * frx * 0.15,
+			by - ARENA_H * fry * 0.1,
+			ARENA_W * frx * 0.4,
+			ARENA_H * fry * 0.35,
+			ang * 0.5,
+			0,
+			Math.PI * 2,
+		);
+		ctx.fillStyle = "rgba(130, 255, 100, 0.18)";
+		ctx.fill();
+	}
+	// High-grass / bush shadows (Brawl “tall grass” ovals)
+	for (let i = 0; i < 14; i++) {
+		const k = i * 17 + 31;
+		const bx = 50 + ((k * 37) % (ARENA_W - 100));
+		const by = 40 + ((k * 29) % (ARENA_H - 80));
+		const bg = ctx.createRadialGradient(bx, by, 0, bx, by, 26);
+		bg.addColorStop(0, `rgba(${20 + (i % 3) * 8},${90 + (i % 4) * 5},32,0.42)`);
+		bg.addColorStop(0.65, `rgba(30,${100 + (i % 2) * 8},40,0.2)`);
+		bg.addColorStop(1, "rgba(0,0,0,0)");
+		ctx.beginPath();
+		ctx.ellipse(
+			bx,
+			by,
+			20 + (i % 3) * 4,
+			16 + (i % 2) * 3,
+			i * 0.12,
+			0,
+			Math.PI * 2,
+		);
+		ctx.fillStyle = bg;
+		ctx.fill();
+	}
+	// Soft depth (keeps sand dominant; not green-heavy)
+	const vg = ctx.createRadialGradient(
+		cx,
+		cy,
+		Math.min(ARENA_W, ARENA_H) * 0.2,
+		cx,
+		cy,
+		Math.max(ARENA_W, ARENA_H) * 0.88,
+	);
+	vg.addColorStop(0, "rgba(0,0,0,0)");
+	vg.addColorStop(0.75, "rgba(30, 24, 16, 0.05)");
+	vg.addColorStop(1, "rgba(20, 16, 10, 0.12)");
+	ctx.fillStyle = vg;
+	ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+	// Brawl frame: deep blue → thick gold → soft inner highlight → blue inlay
+	ctx.strokeStyle = BS_RIM;
+	ctx.lineWidth = 5;
+	ctx.strokeRect(1, 1, ARENA_W - 2, ARENA_H - 2);
+	const rimG = ctx.createLinearGradient(0, 0, ARENA_W, ARENA_H);
+	rimG.addColorStop(0, "#fff8c0");
+	rimG.addColorStop(0.25, BS_GOLD);
+	rimG.addColorStop(0.5, BS_GOLD_D);
+	rimG.addColorStop(0.75, BS_GOLD);
+	rimG.addColorStop(1, "#fff4b0");
+	ctx.strokeStyle = rimG;
+	ctx.lineWidth = 10;
 	ctx.strokeRect(5, 5, ARENA_W - 10, ARENA_H - 10);
-	ctx.strokeStyle = "rgba(20, 50, 120, 0.35)";
-	ctx.lineWidth = 2;
-	ctx.strokeRect(9, 9, ARENA_W - 18, ARENA_H - 18);
+	ctx.strokeStyle = "rgba(255,255,255,0.55)";
+	ctx.lineWidth = 1.5;
+	ctx.strokeRect(8, 8, ARENA_W - 16, ARENA_H - 16);
+	ctx.strokeStyle = "rgba(18, 60, 110, 0.45)";
+	ctx.lineWidth = 1.2;
+	ctx.strokeRect(10, 10, ARENA_W - 20, ARENA_H - 20);
 }
 
 /** Your team: **elephant** mascot + red/white cap (+x = facing). */
@@ -1199,6 +1607,8 @@ function drawGOPBrawler(
 	capRed: string,
 	capPanel: string,
 	hitFlash: number,
+	/** Player-only: 808 / phonk bass “weapon” (visual + paired SFX in sfx). */
+	phonkGun: boolean,
 ) {
 	const earIn = `rgba(255,200,210,0.9)`;
 	ctx.save();
@@ -1390,11 +1800,15 @@ function drawGOPBrawler(
 	ctx.textBaseline = "middle";
 	ctx.fillText("MAGA", 0, 0);
 	ctx.restore();
-	// Pistol
+	// Sidearm: normal pistol (allies) or phonk bass cannon (you)
 	ctx.save();
 	ctx.translate(r * 0.4, r * 0.1);
 	ctx.rotate(0.05);
-	drawHandgunTopDown(ctx, r * 0.95);
+	if (phonkGun) {
+		drawPhonkBassGunTopDown(ctx, r * 1.05);
+	} else {
+		drawHandgunTopDown(ctx, r * 0.95);
+	}
 	ctx.restore();
 	if (hitFlash > 0) {
 		ctx.globalAlpha = clamp(hitFlash / 0.15, 0, 1) * 0.6;
@@ -1407,7 +1821,39 @@ function drawGOPBrawler(
 	ctx.restore();
 }
 
-function drawVigilante(ctx: CanvasRenderingContext2D, a: Ally) {
+function drawVigilante(
+	ctx: CanvasRenderingContext2D,
+	a: Ally,
+	allyImage: HTMLImageElement | null,
+) {
+	const r = ALLY_RADIUS;
+	if (allyImage?.complete) {
+		const d = r * 2.8;
+		// Shadow
+		ctx.save();
+		ctx.translate(a.pos.x, a.pos.y);
+		ctx.beginPath();
+		ctx.ellipse(0, r * 0.72, r * 0.88, r * 0.34, 0, 0, Math.PI * 2);
+		const zs = ctx.createRadialGradient(0, r * 0.62, 0, 0, r * 0.72, r);
+		zs.addColorStop(0, "rgba(0,0,0,0.42)");
+		zs.addColorStop(1, "rgba(0,0,0,0.08)");
+		ctx.fillStyle = zs;
+		ctx.fill();
+		// Sprite — no clip, transparent PNG silhouette shows naturally
+		ctx.rotate(a.angle);
+		ctx.drawImage(allyImage, -d / 2, -d / 2, d, d);
+		// Hit flash overlay
+		if (a.hitFlash > 0) {
+			ctx.globalCompositeOperation = "source-atop";
+			ctx.globalAlpha = clamp(a.hitFlash / 0.15, 0, 1) * 0.6;
+			ctx.fillStyle = "#ffffff";
+			ctx.fillRect(-d / 2, -d / 2, d, d);
+			ctx.globalAlpha = 1;
+			ctx.globalCompositeOperation = "source-over";
+		}
+		ctx.restore();
+		return;
+	}
 	drawGOPBrawler(
 		ctx,
 		a.pos,
@@ -1418,6 +1864,7 @@ function drawVigilante(ctx: CanvasRenderingContext2D, a: Ally) {
 		a.cape,
 		a.capeInner,
 		a.hitFlash,
+		false,
 	);
 }
 
@@ -1432,6 +1879,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player) {
 		PLAYER_GOP_SKIN.cape,
 		PLAYER_GOP_SKIN.capeInner,
 		p.hitFlash,
+		true,
 	);
 	// Brawl-style “your brawler” ring
 	ctx.beginPath();
@@ -1446,12 +1894,32 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player) {
 	ctx.stroke();
 }
 
-function drawAlly(ctx: CanvasRenderingContext2D, a: Ally) {
-	drawVigilante(ctx, a);
+function drawAlly(
+	ctx: CanvasRenderingContext2D,
+	a: Ally,
+	allyImage: HTMLImageElement | null,
+) {
+	drawVigilante(ctx, a, allyImage);
 }
 
-function drawDeadAlly(ctx: CanvasRenderingContext2D, a: Ally) {
+function drawDeadAlly(
+	ctx: CanvasRenderingContext2D,
+	a: Ally,
+	allyImage: HTMLImageElement | null,
+) {
 	const r = ALLY_RADIUS;
+	if (allyImage?.complete) {
+		const tilt = a.angle + 0.32;
+		const d = r * 2.8;
+		ctx.save();
+		ctx.translate(a.pos.x, a.pos.y);
+		ctx.rotate(tilt);
+		ctx.globalAlpha = 0.55;
+		ctx.drawImage(allyImage, -d * 0.5, -d * 0.48, d, d);
+		ctx.globalAlpha = 1;
+		ctx.restore();
+		return;
+	}
 	ctx.save();
 	ctx.translate(a.pos.x, a.pos.y);
 	ctx.rotate(a.angle);
@@ -1515,7 +1983,11 @@ function drawDeadAlly(ctx: CanvasRenderingContext2D, a: Ally) {
 	ctx.restore();
 }
 
-function drawZombie(ctx: CanvasRenderingContext2D, z: Zombie) {
+function drawZombie(
+	ctx: CanvasRenderingContext2D,
+	z: Zombie,
+	enemyImage: HTMLImageElement | null,
+) {
 	ctx.save();
 	ctx.translate(z.pos.x, z.pos.y);
 	// Shadow
@@ -1546,6 +2018,32 @@ function drawZombie(ctx: CanvasRenderingContext2D, z: Zombie) {
 	ctx.rotate(angle);
 
 	const sm = z.type === "brute" ? 1.15 : z.type === "runner" ? 0.9 : 1;
+	if (enemyImage?.complete) {
+		const d = z.radius * 2.8 * sm;
+		// Sprite — transparent PNG, no clip needed
+		ctx.drawImage(enemyImage, -d * 0.5, -d * 0.5, d, d);
+		// Brute marker ring
+		if (z.type === "brute") {
+			ctx.strokeStyle = "rgba(255,200,80,0.75)";
+			ctx.lineWidth = 2.5;
+			ctx.setLineDash([5, 4]);
+			ctx.beginPath();
+			ctx.arc(0, 0, d * 0.42, 0, Math.PI * 2);
+			ctx.stroke();
+			ctx.setLineDash([]);
+		}
+		// Hit flash — whites out only the sprite pixels
+		if (z.hitFlash > 0) {
+			ctx.globalCompositeOperation = "source-atop";
+			ctx.globalAlpha = clamp(z.hitFlash / 0.1, 0, 1) * 0.65;
+			ctx.fillStyle = "#ffffff";
+			ctx.fillRect(-d * 0.5, -d * 0.5, d, d);
+			ctx.globalAlpha = 1;
+			ctx.globalCompositeOperation = "source-over";
+		}
+		ctx.restore();
+		return;
+	}
 	// Rival “blue team” suits (D-style primary blues)
 	const suit =
 		z.type === "brute"
@@ -1723,15 +2221,17 @@ function drawBullet(ctx: CanvasRenderingContext2D, b: Bullet) {
 	ctx.translate(b.pos.x, b.pos.y);
 	ctx.rotate(angle);
 	ctx.shadowColor = isPl
-		? "rgba(255, 220, 80, 0.9)"
+		? "rgba(0, 240, 255, 0.9)"
 		: "rgba(140, 200, 255, 0.9)";
 	ctx.shadowBlur = 8;
 	const bg = ctx.createLinearGradient(-6, -1.5, 6, 1.5);
 	if (isPl) {
+		// “Bass pulse” (phonk)
 		bg.addColorStop(0, "rgba(255,255,255,0.95)");
-		bg.addColorStop(0.4, "#ffe26a");
-		bg.addColorStop(0.7, "#c9a020");
-		bg.addColorStop(1, "rgba(80,50,0,0.6)");
+		bg.addColorStop(0.35, "#00e0ff");
+		bg.addColorStop(0.6, "#c040ff");
+		bg.addColorStop(0.85, "#ff1a9e");
+		bg.addColorStop(1, "rgba(20,0,40,0.5)");
 	} else {
 		bg.addColorStop(0, "rgba(255,255,255,0.9)");
 		bg.addColorStop(0.45, "#a8d8ff");
@@ -1801,16 +2301,18 @@ function drawHpBar(
 }
 
 function drawVignette(ctx: CanvasRenderingContext2D) {
+	// Brawl: very light “sky” blue falloff at the arena edge (not heavy black)
 	const grad = ctx.createRadialGradient(
 		ARENA_W / 2,
 		ARENA_H / 2,
-		ARENA_H * 0.4,
+		ARENA_H * 0.32,
 		ARENA_W / 2,
 		ARENA_H / 2,
-		Math.max(ARENA_W, ARENA_H) * 0.75,
+		Math.max(ARENA_W, ARENA_H) * 0.7,
 	);
 	grad.addColorStop(0, "rgba(0,0,0,0)");
-	grad.addColorStop(1, "rgba(0,40,80,0.06)");
+	grad.addColorStop(0.65, "rgba(20, 55, 110, 0.04)");
+	grad.addColorStop(1, "rgba(15, 45, 90, 0.09)");
 	ctx.fillStyle = grad;
 	ctx.fillRect(0, 0, ARENA_W, ARENA_H);
 }
@@ -1898,13 +2400,55 @@ function drawCrosshair(ctx: CanvasRenderingContext2D, mouse: Vec) {
 	ctx.restore();
 }
 
+type KillFatalityState =
+	| { status: "idle" }
+	| {
+			status: "furious";
+			wave: number;
+			playerKills: number;
+			title: string;
+			/** DALL·E when ready; null = still importing (UI is already live) */
+			dataUrl: string | null;
+			flavor: string | null;
+	  }
+	| { status: "error"; message: string };
+
+function loadDataUrlImage(dataUrl: string): Promise<HTMLImageElement> {
+	return new Promise((res, rej) => {
+		const i = document.createElement("img");
+		i.onload = () => res(i);
+		i.onerror = () => rej(new Error("Could not decode theme image"));
+		i.src = dataUrl;
+	});
+}
+
 export default function Game() {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const stateRef = useRef<GameRuntime>(createInitialState());
+	const themeSpritesRef = useRef<ThemePack | null>(null);
 	const musicRef = useRef<MusicEngine | null>(null);
 	const sfxRef = useRef<SfxEngine | null>(null);
+	const onKillForFatalityRef = useRef<
+		(playerKills: number, wave: number) => void
+	>(() => {});
 	const [, setTick] = useState(0);
 	const [muted, setMuted] = useState(false);
+	const [killFatality, setKillFatality] = useState<KillFatalityState>({
+		status: "idle",
+	});
+	const [menuPanel, setMenuPanel] = useState<
+		"default" | "themed" | "themedLoading"
+	>("default");
+	const [themeError, setThemeError] = useState<string | null>(null);
+	const [arenaPrompt, setArenaPrompt] = useState(
+		"Neon ruins, cracked marble, ember glow, moonlit",
+	);
+	const [enemyPrompt, setEnemyPrompt] = useState(
+		"Mecha-mummy jackals, rust and teal metal",
+	);
+	const [allyPrompt, setAllyPrompt] = useState(
+		"Chrome knights, white capes, electric trim",
+	);
 	const [hud, setHud] = useState({
 		hp: PLAYER_MAX_HP,
 		maxHp: PLAYER_MAX_HP,
@@ -1915,6 +2459,61 @@ export default function Game() {
 		phase: "menu" as Phase,
 		paused: false,
 	});
+	const { mutateAsync: requestFatalityArt } =
+		api.game.fatalityOnKill.useMutation();
+	const { mutateAsync: requestThemeArt } = api.game.themeArt.useMutation();
+
+	useEffect(() => {
+		onKillForFatalityRef.current = (playerKills, w) => {
+			const { fatalityTitle } = buildLightweightFatality(w, playerKills);
+			setKillFatality({
+				status: "furious",
+				wave: w,
+				playerKills,
+				title: fatalityTitle,
+				dataUrl: null,
+				flavor: null,
+			});
+			void (async () => {
+				try {
+					const d = await requestFatalityArt({
+						killCount: playerKills,
+						wave: w,
+					});
+					if (d.ok) {
+						setKillFatality((prev) => {
+							if (prev.status !== "furious") return prev;
+							return {
+								status: "furious",
+								wave: w,
+								playerKills,
+								title: d.fatalityTitle,
+								dataUrl: d.dataUrl,
+								flavor: d.flavorText,
+							};
+						});
+					}
+				} catch (e) {
+					setKillFatality({
+						status: "error",
+						message: e instanceof Error ? e.message : "Fatality art failed",
+					});
+				}
+			})();
+		};
+	}, [requestFatalityArt]);
+
+	const readyKey =
+		killFatality.status === "furious" && killFatality.dataUrl
+			? killFatality.dataUrl
+			: null;
+	useEffect(() => {
+		if (!readyKey) return;
+		const t = window.setTimeout(() => {
+			setKillFatality({ status: "idle" });
+		}, 4500);
+		return () => window.clearTimeout(t);
+	}, [readyKey]);
 
 	useEffect(() => {
 		musicRef.current = createMusicEngine();
@@ -2013,7 +2612,12 @@ export default function Game() {
 			last = now;
 			const s = stateRef.current;
 			update(s, dt);
-			render(ctx, s);
+			if (s.phase === "playing" && s.fatalityTrigger) {
+				const t = s.fatalityTrigger;
+				s.fatalityTrigger = null;
+				onKillForFatalityRef.current(t.playerKills, t.wave);
+			}
+			render(ctx, s, themeSpritesRef.current);
 
 			hudClock += dt;
 			if (hudClock > 0.1) {
@@ -2048,15 +2652,48 @@ export default function Game() {
 		};
 	}, []);
 
-	const startGame = () => {
+	/** @param clearThemed - false keeps AI skins from last themed run (e.g. Play Again). */
+	const beginMatch = (clearThemed: boolean) => {
+		if (clearThemed) themeSpritesRef.current = null;
 		const s = createInitialState();
 		s.phase = "playing";
 		s.sfx = sfxRef.current;
 		startWave(s, 1);
 		stateRef.current = s;
+		setKillFatality({ status: "idle" });
 		musicRef.current?.start();
 		sfxRef.current?.ensureStarted();
 	};
+
+	const startThemedAndPlay = () => {
+		setThemeError(null);
+		setMenuPanel("themedLoading");
+		void (async () => {
+			try {
+				const d = await requestThemeArt({
+					arena: arenaPrompt,
+					enemy: enemyPrompt,
+					ally: allyPrompt,
+				});
+				const [arena, enemy, ally] = await Promise.all([
+					loadDataUrlImage(d.arena),
+					loadDataUrlImage(d.enemy),
+					loadDataUrlImage(d.ally),
+				]);
+				themeSpritesRef.current = { arena, enemy, ally };
+				setMenuPanel("default");
+				beginMatch(false);
+			} catch (e) {
+				setMenuPanel("themed");
+				setThemeError(
+					e instanceof Error ? e.message : "Could not build themed look",
+				);
+			}
+		})();
+	};
+
+	const themeBtnBase =
+		"relative w-full max-w-sm select-none rounded-2xl border-4 border-[#143252] bg-gradient-to-b from-[#6ab8ff] to-[#2060c8] px-4 py-3 font-extrabold text-[#102030] shadow-[0_4px_0_#0a1c30] transition-transform active:translate-y-px sm:px-6";
 
 	const resume = () => {
 		stateRef.current.paused = false;
@@ -2068,10 +2705,7 @@ export default function Game() {
 		"relative select-none rounded-full border-4 border-[#143252] bg-gradient-to-b from-[#ffec90] to-[#ffb000] px-10 py-3.5 font-extrabold text-[#102840] text-lg shadow-[0_5px_0_#0a1c30,0_10px_20px_rgba(0,0,0,0.35)] transition-transform before:pointer-events-none before:absolute before:inset-x-3 before:top-1.5 before:h-[38%] before:rounded-t-[999px] before:bg-gradient-to-b before:from-white/50 before:to-transparent after:pointer-events-none after:absolute after:inset-0 after:rounded-full after:ring-1 after:ring-inset after:ring-white/30 hover:brightness-105 active:translate-y-1 active:shadow-[0_2px_0_#0a1c30] sm:px-14 sm:py-4 sm:text-2xl";
 
 	return (
-		<div
-			className="relative select-none rounded-[1.75rem] border-[#f2cc4a] border-[5px] bg-gradient-to-b from-[#3d8ce8] via-[#256fd8] to-[#164a9e] p-2.5 shadow-[0_10px_0_#0c2348,0_18px_40px_rgba(0,0,0,0.45)] sm:rounded-[2rem] sm:p-3.5"
-			style={{ width: Math.min(ARENA_W + 36, 1024) }}
-		>
+		<div className="relative w-full max-w-[min(100%,calc(960px+2rem+18rem))] select-none rounded-[1.75rem] border-[#f2cc4a] border-[5px] bg-gradient-to-b from-[#3d8ce8] via-[#256fd8] to-[#164a9e] p-2.5 shadow-[0_10px_0_#0c2348,0_18px_40px_rgba(0,0,0,0.45)] sm:rounded-[2rem] sm:p-3.5">
 			{/* Match info bar (Brawl top strip) */}
 			<div className="mb-2 flex flex-col gap-2 sm:mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
 				<div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
@@ -2111,86 +2745,288 @@ export default function Game() {
 				</div>
 			</div>
 
-			<div
-				className="relative overflow-hidden rounded-2xl border-4 border-[#142e58] bg-[#061428] shadow-[inset_0_2px_0_rgba(255,255,255,0.12)]"
-				style={{ width: ARENA_W, height: ARENA_H }}
-			>
-				<canvas
-					className="block"
-					ref={canvasRef}
-					style={{
-						width: ARENA_W,
-						height: ARENA_H,
-						cursor: hud.phase === "playing" && !hud.paused ? "none" : "default",
-					}}
-				/>
+			<div className="flex w-full min-w-0 flex-col items-stretch gap-2 lg:flex-row lg:items-start">
+				<div
+					className="relative shrink-0 overflow-hidden rounded-2xl border-4 border-[#142e58] bg-[#061428] shadow-[inset_0_2px_0_rgba(255,255,255,0.12)]"
+					style={{ width: ARENA_W, height: ARENA_H }}
+				>
+					<canvas
+						className="block"
+						ref={canvasRef}
+						style={{
+							width: ARENA_W,
+							height: ARENA_H,
+							cursor:
+								hud.phase === "playing" && !hud.paused ? "none" : "default",
+						}}
+					/>
 
-				{hud.phase === "menu" && (
-					<Overlay>
-						<p className="mb-1 font-extrabold text-[#bfe4ff] text-sm uppercase tracking-[0.2em]">
-							3V3
-						</p>
-						<h1
-							className="mb-1 text-center font-extrabold text-4xl text-white leading-none drop-shadow-[0_4px_0_#0a1c30] sm:text-5xl"
-							style={{ textShadow: "0 0 2px #000, 0 3px 0 #143252" }}
-						>
-							ARENA
-						</h1>
-						<p
-							className="mb-6 max-w-sm text-center font-bold text-[#ffe8a0] text-lg sm:text-xl"
-							style={{ textShadow: "0 2px 0 #0a1c30" }}
-						>
-							ELEPHANTS <span className="text-white"> vs </span> DONKEYS
-						</p>
-						<p className="mb-6 max-w-md text-center font-semibold text-[#d4ecff] text-sm leading-relaxed sm:text-base">
-							Hold the zone with your team. Wipe the wave before they overrun
-							you!
-						</p>
-						<div className="mb-6 grid w-full max-w-sm grid-cols-2 gap-x-4 gap-y-2 text-left font-bold text-sm text-white sm:gap-y-2.5 sm:text-base">
-							<HelpRow d="move" k="W A S D" />
-							<HelpRow d="aim" k="MOUSE" />
-							<HelpRow d="fire" k="CLICK" />
-							<HelpRow d="pause" k="ESC" />
-						</div>
-						<button className={brawlBtn} onClick={startGame} type="button">
-							PLAY
-						</button>
-					</Overlay>
-				)}
+					{hud.phase === "menu" && (
+						<Overlay>
+							{menuPanel === "themedLoading" ? (
+								<div className="flex max-w-sm flex-col items-center gap-3 px-2 text-center">
+									<p className="font-extrabold text-[#bfe4ff] text-sm uppercase tracking-[0.2em]">
+										AI textures
+									</p>
+									<p className="font-bold text-[#fff6c8] text-lg sm:text-xl">
+										Rendering arena, enemies & squad…
+									</p>
+									<p className="text-[#9ed0ff] text-sm">
+										Three images in parallel — usually a few seconds.
+									</p>
+									<div
+										aria-hidden
+										className="h-2 w-48 overflow-hidden rounded-full bg-[#0a2a50]"
+									>
+										<div className="h-full w-full animate-pulse rounded-full bg-gradient-to-r from-[#6cf] via-[#a8f] to-[#f8e070]" />
+									</div>
+								</div>
+							) : menuPanel === "themed" ? (
+								<div className="flex w-full max-w-md flex-col items-stretch gap-3 px-1">
+									<p className="text-center font-extrabold text-[#bfe4ff] text-sm uppercase tracking-[0.2em]">
+										Themed arena
+									</p>
+									<p className="text-center text-[#d4ecff] text-sm leading-snug">
+										Short phrases — DALL·E builds the floor, enemy look, and ally
+										look. Player brawler stays the same.
+									</p>
+									<label className="flex flex-col gap-1 text-left">
+										<span className="font-bold text-[#ffe8a0] text-xs uppercase">
+											Map / environment
+										</span>
+										<textarea
+											className="min-h-[3.5rem] resize-y rounded-xl border-2 border-[#143252] bg-[#061830]/90 px-3 py-2 font-semibold text-sm text-white placeholder:text-slate-500"
+											onChange={(e) => setArenaPrompt(e.target.value)}
+											placeholder="e.g. Volcanic glass desert, ember fissures"
+											rows={2}
+											value={arenaPrompt}
+										/>
+									</label>
+									<label className="flex flex-col gap-1 text-left">
+										<span className="font-bold text-[#ffe8a0] text-xs uppercase">
+											Enemies
+										</span>
+										<textarea
+											className="min-h-[3.5rem] resize-y rounded-xl border-2 border-[#143252] bg-[#061830]/90 px-3 py-2 font-semibold text-sm text-white placeholder:text-slate-500"
+											onChange={(e) => setEnemyPrompt(e.target.value)}
+											placeholder="e.g. Frost lizard drones, icy chrome"
+											rows={2}
+											value={enemyPrompt}
+										/>
+									</label>
+									<label className="flex flex-col gap-1 text-left">
+										<span className="font-bold text-[#ffe8a0] text-xs uppercase">
+											Allies
+										</span>
+										<textarea
+											className="min-h-[3.5rem] resize-y rounded-xl border-2 border-[#143252] bg-[#061830]/90 px-3 py-2 font-semibold text-sm text-white placeholder:text-slate-500"
+											onChange={(e) => setAllyPrompt(e.target.value)}
+											placeholder="e.g. Golden samurai mechs, plum capes"
+											rows={2}
+											value={allyPrompt}
+										/>
+									</label>
+									{themeError ? (
+										<p className="text-center font-bold text-[#ff9090] text-sm leading-snug">
+											{themeError}
+										</p>
+									) : null}
+									<div className="mt-1 flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+										<button
+											className={themeBtnBase}
+											onClick={() => {
+												setMenuPanel("default");
+												setThemeError(null);
+											}}
+											type="button"
+										>
+											Back
+										</button>
+										<button
+											className={`${themeBtnBase} from-[#ffe070] to-[#f09820] text-[#102840]`}
+											onClick={startThemedAndPlay}
+											type="button"
+										>
+											Generate &amp; play
+										</button>
+									</div>
+								</div>
+							) : (
+								<>
+									<p className="mb-1 font-extrabold text-[#bfe4ff] text-sm uppercase tracking-[0.2em]">
+										3V3
+									</p>
+									<h1
+										className="mb-1 text-center font-extrabold text-4xl text-white leading-none drop-shadow-[0_4px_0_#0a1c30] sm:text-5xl"
+										style={{ textShadow: "0 0 2px #000, 0 3px 0 #143252" }}
+									>
+										ARENA
+									</h1>
+									<p
+										className="mb-6 max-w-sm text-center font-bold text-[#ffe8a0] text-lg sm:text-xl"
+										style={{ textShadow: "0 2px 0 #0a1c30" }}
+									>
+										ELEPHANTS <span className="text-white"> vs </span> DONKEYS
+									</p>
+									<p className="mb-6 max-w-md text-center font-semibold text-[#d4ecff] text-sm leading-relaxed sm:text-base">
+										Hold the zone with your team. Wipe the wave before they
+										overrun you!
+									</p>
+									<div className="mb-6 grid w-full max-w-sm grid-cols-2 gap-x-4 gap-y-2 text-left font-bold text-sm text-white sm:gap-y-2.5 sm:text-base">
+										<HelpRow d="move" k="W A S D" />
+										<HelpRow d="aim" k="MOUSE" />
+										<HelpRow d="fire" k="CLICK" />
+										<HelpRow d="pause" k="ESC" />
+									</div>
+									<div className="flex w-full max-w-sm flex-col items-center gap-3">
+										<button
+											className={brawlBtn}
+											onClick={() => beginMatch(true)}
+											type="button"
+										>
+											PLAY
+										</button>
+										<button
+											className={themeBtnBase}
+											onClick={() => {
+												setMenuPanel("themed");
+												setThemeError(null);
+											}}
+											type="button"
+										>
+											AI THEME…
+										</button>
+									</div>
+								</>
+							)}
+						</Overlay>
+					)}
 
-				{hud.phase === "gameover" && (
-					<Overlay>
-						<p className="mb-1 font-extrabold text-[#ffb0b0] text-sm uppercase tracking-[0.2em]">
-							DEFEAT
-						</p>
-						<h1
-							className="mb-4 text-center font-extrabold text-4xl text-white sm:text-5xl"
-							style={{ textShadow: "0 4px 0 #0a1c30, 0 0 20px #800" }}
-						>
-							DEFEATED
-						</h1>
-						<p className="mb-8 max-w-sm text-center font-bold text-[#d4ecff] text-lg sm:text-xl">
-							Wave <span className="text-[#ffe066]">{hud.wave}</span> · Kills{" "}
-							<span className="text-[#ffe066]">{hud.kills}</span>
-						</p>
-						<button className={brawlBtn} onClick={startGame} type="button">
-							PLAY AGAIN
-						</button>
-					</Overlay>
-				)}
+					{hud.phase === "gameover" && (
+						<Overlay>
+							<p className="mb-1 font-extrabold text-[#ffb0b0] text-sm uppercase tracking-[0.2em]">
+								DEFEAT
+							</p>
+							<h1
+								className="mb-4 text-center font-extrabold text-4xl text-white sm:text-5xl"
+								style={{ textShadow: "0 4px 0 #0a1c30, 0 0 20px #800" }}
+							>
+								DEFEATED
+							</h1>
+							<p className="mb-8 max-w-sm text-center font-bold text-[#d4ecff] text-lg sm:text-xl">
+								Wave <span className="text-[#ffe066]">{hud.wave}</span> · Kills{" "}
+								<span className="text-[#ffe066]">{hud.kills}</span>
+							</p>
+							<button
+								className={brawlBtn}
+								onClick={() => beginMatch(false)}
+								type="button"
+							>
+								PLAY AGAIN
+							</button>
+						</Overlay>
+					)}
 
-				{hud.phase === "playing" && hud.paused && (
-					<Overlay>
-						<h1
-							className="mb-6 font-extrabold text-5xl text-white sm:text-6xl"
-							style={{ textShadow: "0 5px 0 #0a1c30" }}
-						>
-							PAUSED
-						</h1>
-						<button className={brawlBtn} onClick={resume} type="button">
-							RESUME
-						</button>
-					</Overlay>
+					{hud.phase === "playing" && hud.paused && (
+						<Overlay>
+							<h1
+								className="mb-6 font-extrabold text-5xl text-white sm:text-6xl"
+								style={{ textShadow: "0 5px 0 #0a1c30" }}
+							>
+								PAUSED
+							</h1>
+							<button className={brawlBtn} onClick={resume} type="button">
+								RESUME
+							</button>
+						</Overlay>
+					)}
+				</div>
+
+				{killFatality.status !== "idle" && (
+					<div className="flex w-full min-w-0 max-w-sm flex-col rounded-2xl border-4 border-[#5a1018] bg-[#0a0608] p-2 shadow-[inset_0_0_20px_rgba(80,0,0,0.4)] sm:mx-auto lg:mx-0 lg:shrink-0 lg:basis-72">
+						<p className="mb-1 text-center font-extrabold text-[#ff6060] text-[10px] uppercase tracking-widest">
+							ROUND-END FATALITY — YOU CLOSED THE WAVE
+						</p>
+						{killFatality.status === "furious" && (
+							<button
+								className="flex w-full flex-col items-stretch gap-1.5 border-0 bg-transparent p-0 text-left outline-none"
+								onClick={() => setKillFatality({ status: "idle" })}
+								type="button"
+							>
+								<p className="text-center font-black text-[#ff2a1a] text-xs uppercase [text-shadow:0_0_12px_#f00,2px_2px_0_#200] sm:text-sm">
+									NITRO PAYLOAD
+								</p>
+								<div
+									className="fatality-shake line-clamp-2 text-center font-extrabold text-[#fff6a0] text-base uppercase leading-tight sm:text-lg"
+									style={{ textShadow: "0 0 2px #000" }}
+								>
+									{killFatality.title}
+								</div>
+								<div className="h-1.5 w-full overflow-hidden rounded-sm bg-[#200]">
+									<div className="fatality-nitro h-full w-full rounded-sm bg-gradient-to-r from-[#ff0] via-[#f80] to-[#f00]" />
+								</div>
+								<p className="text-center text-[#aa8] text-[10px] sm:text-[11px]">
+									Your shot · W{killFatality.wave} · you #
+									{killFatality.playerKills}
+									{killFatality.dataUrl
+										? " · your last frag"
+										: " · locking art"}
+								</p>
+								{killFatality.dataUrl ? (
+									<div className="relative w-full overflow-hidden rounded-lg border-2 border-[#8a1020] bg-black [image-rendering:pixelated]">
+										<Image
+											alt={killFatality.title}
+											className="h-auto w-full scale-125 object-contain"
+											height={256}
+											src={killFatality.dataUrl}
+											unoptimized
+											width={256}
+										/>
+									</div>
+								) : (
+									<div
+										aria-hidden
+										className="relative aspect-square w-full overflow-hidden rounded-lg border-2 border-[#c40] bg-gradient-to-br from-red-800 via-stone-950 to-amber-600"
+									>
+										<div
+											className="pointer-events-none absolute inset-0 opacity-40"
+											style={{
+												background:
+													"repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,0,0,0.35) 1px, rgba(0,0,0,0.35) 2px)",
+											}}
+										/>
+										<p className="absolute inset-0 flex items-center justify-center text-center font-black text-[#ff0] text-xs [text-shadow:0_0_8px_#f00]">
+											IMPORTING
+											<br />
+											FIELD BOOST
+										</p>
+									</div>
+								)}
+								{killFatality.flavor ? (
+									<p className="line-clamp-2 text-center text-[#a98] text-[10px]">
+										{killFatality.flavor}
+									</p>
+								) : null}
+								<p className="text-center font-extrabold text-[#ff5050] text-[10px] uppercase">
+									tap to dismiss
+								</p>
+							</button>
+						)}
+						{killFatality.status === "error" && (
+							<div className="flex min-h-[120px] flex-col gap-2 p-1">
+								<p className="font-bold text-red-200 text-xs leading-snug">
+									{killFatality.message}
+								</p>
+								<button
+									className="rounded border border-red-500/50 py-1 font-extrabold text-[11px] text-white uppercase"
+									onClick={() => setKillFatality({ status: "idle" })}
+									type="button"
+								>
+									dismiss
+								</button>
+							</div>
+						)}
+					</div>
 				)}
 			</div>
 

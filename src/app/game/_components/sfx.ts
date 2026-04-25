@@ -13,7 +13,7 @@ export type SfxEngine = {
 };
 
 const MIN_GAP: Record<SfxKind, number> = {
-	playerShoot: 0.04,
+	playerShoot: 0.05,
 	allyShoot: 0.04,
 	zombieHit: 0.025,
 	zombieKill: 0.035,
@@ -70,27 +70,62 @@ export function createSfxEngine(): SfxEngine {
 		return g;
 	}
 
+	/** 808 + sub stack — “phonk bass” shot. */
 	function playerShoot(t: number) {
 		if (!ctx || !master) return;
-		const ng = noiseBurst(t, 0.06, 0.45);
+		// Tight high band for the “pew” (quiet)
+		const ng = noiseBurst(t, 0.045, 0.18);
 		if (ng) {
 			const hp = ctx.createBiquadFilter();
 			hp.type = "highpass";
-			hp.frequency.value = 1400;
+			hp.frequency.value = 2200;
 			ng.disconnect();
 			ng.connect(hp).connect(master);
 		}
-		const osc = ctx.createOscillator();
-		const og = ctx.createGain();
-		osc.type = "square";
-		osc.frequency.setValueAtTime(240, t);
-		osc.frequency.exponentialRampToValueAtTime(55, t + 0.07);
-		og.gain.setValueAtTime(0.0001, t);
-		og.gain.exponentialRampToValueAtTime(0.38, t + 0.003);
-		og.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-		osc.connect(og).connect(master);
-		osc.start(t);
-		osc.stop(t + 0.1);
+		// 808 thump: pitch bend down
+		const a808 = ctx.createOscillator();
+		const g808 = ctx.createGain();
+		a808.type = "sine";
+		a808.frequency.setValueAtTime(86, t);
+		a808.frequency.exponentialRampToValueAtTime(32, t + 0.11);
+		g808.gain.setValueAtTime(0.0001, t);
+		g808.gain.exponentialRampToValueAtTime(0.62, t + 0.0025);
+		g808.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+		a808.connect(g808).connect(master);
+		a808.start(t);
+		a808.stop(t + 0.22);
+		// Sub body (2nd)
+		const sub = ctx.createOscillator();
+		const gSub = ctx.createGain();
+		sub.type = "sine";
+		sub.frequency.setValueAtTime(48, t);
+		sub.frequency.exponentialRampToValueAtTime(30, t + 0.14);
+		gSub.gain.setValueAtTime(0.0001, t);
+		gSub.gain.exponentialRampToValueAtTime(0.48, t + 0.004);
+		gSub.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+		sub.connect(gSub).connect(master);
+		sub.start(t);
+		sub.stop(t + 0.26);
+		// Slight saturation sizzle in the “mid sub”
+		const wob = ctx.createOscillator();
+		const gW = ctx.createGain();
+		const sh = ctx.createWaveShaper();
+		const wlen = 256;
+		const curve = new Float32Array(wlen);
+		for (let i = 0; i < wlen; i++) {
+			const x = (i * 2) / wlen - 1;
+			curve[i] = (12 * x) / (1 + 10 * Math.abs(x));
+		}
+		sh.curve = curve;
+		wob.type = "triangle";
+		wob.frequency.setValueAtTime(88, t);
+		wob.frequency.exponentialRampToValueAtTime(50, t + 0.1);
+		gW.gain.setValueAtTime(0.0001, t);
+		gW.gain.exponentialRampToValueAtTime(0.12, t + 0.001);
+		gW.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+		wob.connect(sh).connect(gW).connect(master);
+		wob.start(t);
+		wob.stop(t + 0.14);
 	}
 
 	function allyShoot(t: number) {
