@@ -4,6 +4,12 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { buildLightweightFatality } from "~/lib/fatality-light";
 import { api } from "~/trpc/react";
+import { downloadBlob, exportClipToVideo } from "./highlight-export";
+import {
+	HighlightRecorder,
+	type HighlightClip,
+	type StateSnapshot,
+} from "./highlight-recorder";
 import { createMusicEngine, type MusicEngine } from "./music";
 import { createSfxEngine, type SfxEngine } from "./sfx";
 
@@ -1190,6 +1196,134 @@ function spawnLogic(s: GameRuntime, dt: number) {
 			s.waveBreak = 0;
 		}
 	}
+}
+
+function cloneVec(v: Vec): Vec {
+	return { x: v.x, y: v.y };
+}
+
+function snapshotState(s: GameRuntime): StateSnapshot {
+	return {
+		player: {
+			pos: cloneVec(s.player.pos),
+			hp: s.player.hp,
+			maxHp: s.player.maxHp,
+			angle: s.player.angle,
+			cooldown: s.player.cooldown,
+			hitFlash: s.player.hitFlash,
+		},
+		allies: s.allies.map((a) => ({
+			pos: cloneVec(a.pos),
+			hp: a.hp,
+			maxHp: a.maxHp,
+			angle: a.angle,
+			alive: a.alive,
+			hitFlash: a.hitFlash,
+			cooldown: a.cooldown,
+			respawnTimer: a.respawnTimer,
+			followOffset: cloneVec(a.followOffset),
+			armor: a.armor,
+			armorHighlight: a.armorHighlight,
+			cape: a.cape,
+			capeInner: a.capeInner,
+		})),
+		zombies: s.zombies.map((z) => ({
+			pos: cloneVec(z.pos),
+			vel: cloneVec(z.vel),
+			hp: z.hp,
+			maxHp: z.maxHp,
+			speed: z.speed,
+			radius: z.radius,
+			damage: z.damage,
+			type: z.type,
+			hitFlash: z.hitFlash,
+			wobble: z.wobble,
+		})),
+		bullets: s.bullets.map((b) => ({
+			pos: cloneVec(b.pos),
+			vel: cloneVec(b.vel),
+			damage: b.damage,
+			ttl: b.ttl,
+			team: b.team,
+		})),
+		particles: s.particles.map((p) => ({
+			pos: cloneVec(p.pos),
+			vel: cloneVec(p.vel),
+			life: p.life,
+			maxLife: p.maxLife,
+			color: p.color,
+			size: p.size,
+		})),
+		texts: s.texts.map((t) => ({
+			pos: cloneVec(t.pos),
+			vel: cloneVec(t.vel),
+			text: t.text,
+			life: t.life,
+			color: t.color,
+		})),
+		obstacles: s.obstacles,
+		shakeTime: s.shakeTime,
+		shakeMag: s.shakeMag,
+		bannerText: s.bannerText,
+		bannerTime: s.bannerTime,
+		bannerMaxTime: s.bannerMaxTime,
+		phase: s.phase,
+		mouse: cloneVec(s.mouse),
+		wave: s.wave,
+		kills: s.kills,
+		playerKills: s.playerKills,
+		zombiesToSpawn: s.zombiesToSpawn,
+	};
+}
+
+function snapshotToRuntime(snap: StateSnapshot): GameRuntime {
+	return {
+		phase: snap.phase as Phase,
+		player: { ...snap.player, pos: { ...snap.player.pos } },
+		allies: snap.allies.map((a) => ({
+			...a,
+			pos: { ...a.pos },
+			followOffset: { ...a.followOffset },
+		})),
+		zombies: snap.zombies.map((z) => ({
+			...z,
+			pos: { ...z.pos },
+			vel: { ...z.vel },
+		})),
+		bullets: snap.bullets.map((b) => ({
+			...b,
+			pos: { ...b.pos },
+			vel: { ...b.vel },
+		})),
+		particles: snap.particles.map((p) => ({
+			...p,
+			pos: { ...p.pos },
+			vel: { ...p.vel },
+		})),
+		texts: snap.texts.map((t) => ({
+			...t,
+			pos: { ...t.pos },
+			vel: { ...t.vel },
+		})),
+		obstacles: snap.obstacles,
+		wave: snap.wave,
+		zombiesToSpawn: snap.zombiesToSpawn,
+		spawnTimer: 0,
+		waveBreak: 0,
+		bannerText: snap.bannerText,
+		bannerTime: snap.bannerTime,
+		bannerMaxTime: snap.bannerMaxTime,
+		kills: snap.kills,
+		playerKills: snap.playerKills,
+		fatalityTrigger: null,
+		shakeTime: snap.shakeTime,
+		shakeMag: snap.shakeMag,
+		keys: new Set(),
+		mouse: { ...snap.mouse },
+		shooting: false,
+		paused: false,
+		sfx: null,
+	};
 }
 
 function render(
@@ -2459,6 +2593,19 @@ export default function Game() {
 		phase: "menu" as Phase,
 		paused: false,
 	});
+	const recorderRef = useRef(
+		new HighlightRecorder(() => themeSpritesRef.current),
+	);
+	const [highlightClips, setHighlightClips] = useState<HighlightClip[]>([]);
+	const replayRef = useRef<{
+		clip: HighlightClip;
+		frameIdx: number;
+		subframe: number;
+	} | null>(null);
+	const [replaying, setReplaying] = useState(false);
+	const [exportingId, setExportingId] = useState<string | null>(null);
+	const [exportProgress, setExportProgress] = useState(0);
+	const prevPhaseRef = useRef<Phase>("menu");
 	const { mutateAsync: requestFatalityArt } =
 		api.game.fatalityOnKill.useMutation();
 	const { mutateAsync: requestThemeArt } = api.game.themeArt.useMutation();
@@ -2610,13 +2757,59 @@ export default function Game() {
 		const loop = (now: number) => {
 			const dt = (now - last) / 1000;
 			last = now;
+
+			const rep = replayRef.current;
+			if (rep) {
+				rep.subframe++;
+				if (rep.subframe >= 2) {
+					rep.subframe = 0;
+					rep.frameIdx++;
+				}
+				const frame = rep.clip.frames[rep.frameIdx];
+				if (frame) {
+					const runtime = snapshotToRuntime(frame);
+					render(
+						ctx,
+						runtime,
+						(rep.clip.theme as ThemePack | null) ??
+							themeSpritesRef.current,
+					);
+				} else {
+					replayRef.current = null;
+					setReplaying(false);
+				}
+				hudClock += dt;
+				if (hudClock > 0.1) {
+					hudClock = 0;
+					setTick((t) => t + 1);
+				}
+				raf = requestAnimationFrame(loop);
+				return;
+			}
+
 			const s = stateRef.current;
 			update(s, dt);
+
+			if (s.phase === "playing" && !s.paused) {
+				recorderRef.current.push(snapshotState(s));
+			}
+
 			if (s.phase === "playing" && s.fatalityTrigger) {
 				const t = s.fatalityTrigger;
 				s.fatalityTrigger = null;
+				recorderRef.current.signalWaveClosed(t.wave);
 				onKillForFatalityRef.current(t.playerKills, t.wave);
 			}
+
+			if (
+				prevPhaseRef.current === "playing" &&
+				s.phase === "gameover"
+			) {
+				recorderRef.current.flush();
+				setHighlightClips([...recorderRef.current.getClips()]);
+			}
+			prevPhaseRef.current = s.phase;
+
 			render(ctx, s, themeSpritesRef.current);
 
 			hudClock += dt;
@@ -2660,9 +2853,49 @@ export default function Game() {
 		s.sfx = sfxRef.current;
 		startWave(s, 1);
 		stateRef.current = s;
+		prevPhaseRef.current = "playing";
 		setKillFatality({ status: "idle" });
+		recorderRef.current.reset();
 		musicRef.current?.start();
 		sfxRef.current?.ensureStarted();
+	};
+
+	const playHighlight = (clip: HighlightClip) => {
+		replayRef.current = { clip, frameIdx: 0, subframe: 0 };
+		setReplaying(true);
+	};
+
+	const stopReplay = () => {
+		replayRef.current = null;
+		setReplaying(false);
+	};
+
+	const downloadHighlight = async (clip: HighlightClip) => {
+		setExportingId(clip.id);
+		setExportProgress(0);
+		try {
+			const blob = await exportClipToVideo(
+				clip,
+				(ctx, frame) => {
+					const runtime = snapshotToRuntime(frame);
+					render(
+						ctx,
+						runtime,
+						(clip.theme as ThemePack | null) ??
+							themeSpritesRef.current,
+					);
+				},
+				ARENA_W,
+				ARENA_H,
+				(pct) => setExportProgress(pct),
+			);
+			downloadBlob(
+				blob,
+				`highlight-${clip.moment.kind}-w${clip.frames[0]?.wave ?? 0}.webm`,
+			);
+		} finally {
+			setExportingId(null);
+		}
 	};
 
 	const startThemedAndPlay = () => {
@@ -2902,7 +3135,7 @@ export default function Game() {
 						</Overlay>
 					)}
 
-					{hud.phase === "gameover" && (
+					{hud.phase === "gameover" && !replaying && (
 						<Overlay>
 							<p className="mb-1 font-extrabold text-[#ffb0b0] text-sm uppercase tracking-[0.2em]">
 								DEFEAT
@@ -2913,10 +3146,56 @@ export default function Game() {
 							>
 								DEFEATED
 							</h1>
-							<p className="mb-8 max-w-sm text-center font-bold text-[#d4ecff] text-lg sm:text-xl">
+							<p className="mb-4 max-w-sm text-center font-bold text-[#d4ecff] text-lg sm:text-xl">
 								Wave <span className="text-[#ffe066]">{hud.wave}</span> · Kills{" "}
 								<span className="text-[#ffe066]">{hud.kills}</span>
 							</p>
+
+							{highlightClips.length > 0 && (
+								<div className="mb-4 flex w-full max-w-sm flex-col gap-2">
+									<p className="text-center font-extrabold text-[#ff6060] text-[10px] uppercase tracking-widest">
+										HIGHLIGHTS
+									</p>
+									{highlightClips.map((clip) => (
+										<div
+											key={clip.id}
+											className="flex items-center gap-2 rounded-xl border-2 border-[#5a1018] bg-[#0a0608]/80 px-3 py-2"
+										>
+											<div className="min-w-0 flex-1">
+												<p className="truncate font-extrabold text-[#fff6a0] text-xs uppercase">
+													{clip.moment.label}
+												</p>
+												<p className="text-[#aa8] text-[10px]">
+													{clip.frames.length} frames
+													{clip.frames[0]
+														? ` · W${clip.frames[0].wave}`
+														: ""}
+												</p>
+											</div>
+											<button
+												className="shrink-0 rounded-lg border-2 border-[#143252] bg-gradient-to-b from-[#5aa8ff] to-[#1e5fd0] px-3 py-1 font-extrabold text-[10px] text-white uppercase shadow-[0_2px_0_#0a1c30] active:translate-y-px"
+												onClick={() => playHighlight(clip)}
+												type="button"
+											>
+												PLAY
+											</button>
+											<button
+												className="shrink-0 rounded-lg border-2 border-[#143252] bg-gradient-to-b from-[#90f060] to-[#40a020] px-3 py-1 font-extrabold text-[10px] text-[#102030] uppercase shadow-[0_2px_0_#0a1c30] active:translate-y-px disabled:opacity-50"
+												disabled={exportingId !== null}
+												onClick={() =>
+													void downloadHighlight(clip)
+												}
+												type="button"
+											>
+												{exportingId === clip.id
+													? `${Math.round(exportProgress * 100)}%`
+													: "SAVE"}
+											</button>
+										</div>
+									))}
+								</div>
+							)}
+
 							<button
 								className={brawlBtn}
 								onClick={() => beginMatch(false)}
@@ -2925,6 +3204,26 @@ export default function Game() {
 								PLAY AGAIN
 							</button>
 						</Overlay>
+					)}
+
+					{replaying && (
+						<div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-3 bg-gradient-to-t from-black/70 to-transparent p-3">
+							<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
+								<div
+									className="h-full rounded-full bg-[#ff6060] transition-all"
+									style={{
+										width: `${replayRef.current ? (replayRef.current.frameIdx / replayRef.current.clip.frames.length) * 100 : 0}%`,
+									}}
+								/>
+							</div>
+							<button
+								className="shrink-0 rounded-lg border-2 border-[#5a1018] bg-[#0a0608] px-4 py-1.5 font-extrabold text-[11px] text-white uppercase"
+								onClick={stopReplay}
+								type="button"
+							>
+								STOP
+							</button>
+						</div>
 					)}
 
 					{hud.phase === "playing" && hud.paused && (
