@@ -39,6 +39,7 @@ export function ViralOverlay(props: Props) {
 				background: `radial-gradient(ellipse at 60% 35%, ${mood.bgDeep} 0%, #000 70%)`,
 				color: mood.ink,
 				fontFamily: 'var(--font-sans), system-ui, sans-serif',
+				borderRadius: 38,
 			}}
 		>
 			<Backdrop mood={mood} phase={phase} />

@@ -1805,9 +1805,10 @@ export default function Game() {
 			className="relative flex h-full w-full select-none flex-col overflow-hidden"
 			style={{
 				background: M.surface,
-				padding: "8px 8px",
+				padding: "8px 12px",
 				color: M.ink,
 				fontFamily: "var(--font-sans), system-ui, sans-serif",
+				borderRadius: 38,
 			}}
 		>
 			<DeviceCorners color={M.accent} />
@@ -2074,6 +2075,7 @@ function MoodOverlay({
 			className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
 			style={{
 				background: `radial-gradient(ellipse at 60% 40%, ${mood.bgDeep} 0%, #000 80%)`,
+				borderRadius: 38,
 			}}
 		>
 			{/* corner brackets */}

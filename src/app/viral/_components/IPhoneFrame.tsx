@@ -5,10 +5,11 @@ import type { ReactNode } from "react";
 // Screen rect inside /public/mockup/iphone-15-black-portrait.png (1419x2796).
 // Tuned to match the visible glass area of the mockup. If the mockup PNG
 // changes, retune these four numbers — nothing else.
-const SCREEN_TOP_PCT = 2.5; // top inset in portrait
-const SCREEN_LEFT_PCT = 6.6; // left inset in portrait
-const SCREEN_WIDTH_PCT = 86.6; // screen width in portrait
-const SCREEN_HEIGHT_PCT = 95.0; // screen height in portrait
+const SCREEN_TOP_PCT = 4.0; // top inset in portrait
+const SCREEN_LEFT_PCT = 7.5; // left inset in portrait
+const SCREEN_WIDTH_PCT = 85.0; // screen width in portrait
+const SCREEN_HEIGHT_PCT = 92.0; // screen height in portrait
+const SCREEN_RADIUS_PX = 38; // matches the visible glass corner radius
 
 type Orientation = "landscape" | "portrait";
 
@@ -42,14 +43,14 @@ export function IPhoneFrame({
 								left: `${SCREEN_TOP_PCT}%`,
 								width: `${SCREEN_HEIGHT_PCT}%`,
 								height: `${SCREEN_WIDTH_PCT}%`,
-								borderRadius: "4%",
+								borderRadius: SCREEN_RADIUS_PX,
 							}
 						: {
 								top: `${SCREEN_TOP_PCT}%`,
 								left: `${SCREEN_LEFT_PCT}%`,
 								width: `${SCREEN_WIDTH_PCT}%`,
 								height: `${SCREEN_HEIGHT_PCT}%`,
-								borderRadius: "8%",
+								borderRadius: SCREEN_RADIUS_PX,
 							}
 				}
 			>
