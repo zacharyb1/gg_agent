@@ -735,8 +735,8 @@ function PhoneBezel({
 			<div
 				className="pointer-events-none absolute"
 				style={{
-					width: 460,
-					height: 700,
+					width: "min(620px, 90%)",
+					aspectRatio: "9 / 16",
 					background: `radial-gradient(ellipse at center, ${mood.accent}30 0%, transparent 60%)`,
 					filter: "blur(60px)",
 				}}
@@ -744,31 +744,32 @@ function PhoneBezel({
 			<div
 				className="relative overflow-hidden"
 				style={{
-					width: 320,
-					height: 600,
+					width: "clamp(360px, 34vw, 480px)",
+					aspectRatio: "9 / 16",
+					height: "auto",
 					background: "#000",
-					borderRadius: 40,
-					border: `8px solid #1a1a1a`,
-					boxShadow: `0 40px 80px rgba(0,0,0,0.8), 0 0 0 1px #2a2a2a, ${mood.glow}`,
+					borderRadius: 48,
+					border: `10px solid #1a1a1a`,
+					boxShadow: `0 50px 100px rgba(0,0,0,0.8), 0 0 0 1px #2a2a2a, ${mood.glow}`,
 				}}
 			>
 				<div
 					className="absolute z-10"
 					style={{
-						top: 8,
+						top: 10,
 						left: "50%",
 						transform: "translateX(-50%)",
-						width: 100,
-						height: 24,
+						width: "32%",
+						height: 30,
 						background: "#000",
-						borderRadius: 12,
+						borderRadius: 16,
 					}}
 				/>
 				{videoState.status === "done" && videoState.blobUrl ? (
 					// biome-ignore lint/a11y/useMediaCaption: gameplay clip
 					<video
 						autoPlay
-						className="absolute inset-2 h-[calc(100%-16px)] w-[calc(100%-16px)] rounded-[32px]"
+						className="absolute inset-2 h-[calc(100%-16px)] w-[calc(100%-16px)] rounded-[38px]"
 						controls
 						loop
 						playsInline
