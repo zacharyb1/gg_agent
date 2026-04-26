@@ -1,0 +1,846 @@
+"use client";
+
+import type { EditPlan } from "~/lib/ai-editor/types";
+import type { ViralMoment } from "~/lib/ai-editor/viral";
+import { FONT_DISPLAY, FONT_MONO, MOODS, type Mood, type MoodToken } from "./moods";
+
+type ViralState = {
+	status: "idle" | "detecting" | "done";
+	moments: ViralMoment[];
+};
+type EditState = {
+	status: "idle" | "loading" | "done" | "error";
+	plan: EditPlan | null;
+};
+type VideoState = {
+	status: "idle" | "rendering" | "done" | "error";
+	progress: number;
+	blobUrl: string | null;
+};
+
+type Props = {
+	viralState: ViralState;
+	editState: EditState;
+	videoState: VideoState;
+	matchSummary: { eventCount: number; snapshotCount: number; blobUrl: string | null };
+	wave: number;
+	kills: number;
+	onAgain: () => void;
+};
+
+export function ViralOverlay(props: Props) {
+	const phase = derivePhase(props);
+	const mood = pickMood(props.editState.plan?.mood);
+
+	return (
+		<div
+			className="fixed inset-0 z-50 overflow-hidden"
+			style={{
+				background: `radial-gradient(ellipse at 60% 35%, ${mood.bgDeep} 0%, #000 70%)`,
+				color: mood.ink,
+				fontFamily: 'var(--font-sans), system-ui, sans-serif',
+			}}
+		>
+			<Backdrop mood={mood} phase={phase} />
+			<CornerHud mood={mood} label={hudLabel(phase)} />
+			<div className="relative h-full w-full">
+				{phase === "DETECTING" && <Detecting mood={mood} {...props} />}
+				{phase === "NO_VIRAL" && <NoViral mood={mood} {...props} />}
+				{phase === "DROP_READY" && <DropReady mood={mood} {...props} />}
+			</div>
+		</div>
+	);
+}
+
+// ---------- phase + mood derivation ----------
+
+function derivePhase(p: Props): "DETECTING" | "NO_VIRAL" | "DROP_READY" {
+	if (p.viralState.status === "detecting") return "DETECTING";
+	if (
+		p.viralState.status === "done" &&
+		p.viralState.moments.length === 0
+	) {
+		return "NO_VIRAL";
+	}
+	return "DROP_READY";
+}
+
+function pickMood(m: Mood | undefined): MoodToken {
+	return MOODS[m ?? "menacing"];
+}
+
+function hudLabel(
+	phase: "DETECTING" | "NO_VIRAL" | "DROP_READY",
+): string {
+	if (phase === "DETECTING") return "STATE / DETECTING";
+	if (phase === "NO_VIRAL") return "STATE / NULL · 0 MOMENTS";
+	return "STATE / READY";
+}
+
+// ---------- ambient backdrop ----------
+
+function Backdrop({ mood, phase }: { mood: MoodToken; phase: string }) {
+	// Game canvas is still rendering underneath this fixed layer; we paint
+	// blurred radial blobs + grain on top of a deep-mood gradient so the
+	// previous frame is masked and the takeover owns the viewport.
+	const intensity = phase === "NO_VIRAL" ? 0.55 : 0.7;
+	return (
+		<div className="pointer-events-none absolute inset-0 overflow-hidden">
+			<div
+				className="absolute -inset-12"
+				style={{
+					background: `radial-gradient(ellipse at 60% 40%, ${mood.bgDeep} 0%, #000 80%),
+                        repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0 1px, transparent 1px 4px)`,
+					filter: "blur(28px) saturate(0.45)",
+				}}
+			/>
+			{[
+				[0.2, 0.3, 360],
+				[0.7, 0.55, 480],
+				[0.45, 0.7, 280],
+				[0.85, 0.25, 220],
+			].map(([x, y, s], i) => (
+				<div
+					key={i}
+					className="absolute"
+					style={{
+						left: `${(x as number) * 100}%`,
+						top: `${(y as number) * 100}%`,
+						width: s,
+						height: s,
+						background: `radial-gradient(circle, ${mood.accent2}25 0%, transparent 70%)`,
+						filter: "blur(60px)",
+						transform: "translate(-50%,-50%)",
+					}}
+				/>
+			))}
+			<div
+				className="absolute inset-0"
+				style={{ background: `rgba(0,0,0,${intensity})` }}
+			/>
+		</div>
+	);
+}
+
+// ---------- corner hud ----------
+
+function CornerHud({ mood, label }: { mood: MoodToken; label: string }) {
+	return (
+		<>
+			<div
+				className="absolute top-6 left-8 flex items-center gap-2.5"
+				style={{
+					fontFamily: FONT_MONO,
+					fontSize: 11,
+					letterSpacing: "0.2em",
+					color: mood.inkDim,
+				}}
+			>
+				<span
+					style={{
+						width: 8,
+						height: 8,
+						background: mood.accent,
+						borderRadius: "50%",
+						boxShadow: `0 0 12px ${mood.accent}`,
+					}}
+				/>
+				VIRAL.LIVE / SQUAD-VS-ZOMBIES
+			</div>
+			<div
+				className="absolute top-6 right-8"
+				style={{
+					fontFamily: FONT_MONO,
+					fontSize: 11,
+					letterSpacing: "0.2em",
+					color: mood.inkDim,
+				}}
+			>
+				{label}
+			</div>
+			<CornerBracket mood={mood} pos="tl" />
+			<CornerBracket mood={mood} pos="tr" />
+			<CornerBracket mood={mood} pos="bl" />
+			<CornerBracket mood={mood} pos="br" />
+		</>
+	);
+}
+
+function CornerBracket({
+	mood,
+	pos,
+}: {
+	mood: MoodToken;
+	pos: "tl" | "tr" | "bl" | "br";
+}) {
+	const positions: Record<typeof pos, React.CSSProperties> = {
+		tl: { top: 56, left: 32 },
+		tr: { top: 56, right: 32 },
+		bl: { bottom: 32, left: 32 },
+		br: { bottom: 32, right: 32 },
+	};
+	const flip =
+		(pos.includes("r") ? "scaleX(-1) " : "") +
+		(pos.includes("b") ? "scaleY(-1)" : "");
+	return (
+		<svg
+			className="absolute"
+			width={20}
+			height={20}
+			style={{ ...positions[pos], transform: flip }}
+		>
+			<path
+				d="M0 8 L0 0 L8 0"
+				stroke={mood.accent}
+				strokeWidth={1.5}
+				fill="none"
+			/>
+		</svg>
+	);
+}
+
+// ---------- DETECTING ----------
+
+function Detecting({
+	mood,
+	matchSummary,
+}: {
+	mood: MoodToken;
+	matchSummary: Props["matchSummary"];
+}) {
+	return (
+		<div className="grid h-full place-items-center px-8">
+			<div
+				className="grid items-center gap-20"
+				style={{
+					gridTemplateColumns: "1fr 480px",
+					maxWidth: 1100,
+					width: "100%",
+				}}
+			>
+				{/* reticle */}
+				<div className="relative flex justify-center">
+					<div
+						className="relative"
+						style={{
+							width: 280,
+							height: 280,
+							borderRadius: "50%",
+							border: `1px solid ${mood.accent}40`,
+							boxShadow: `inset 0 0 60px ${mood.accent}20, 0 0 80px ${mood.accent}30`,
+						}}
+					>
+						<div
+							className="absolute"
+							style={{
+								inset: 24,
+								borderRadius: "50%",
+								border: `1px dashed ${mood.accent}60`,
+								animation: "viral-spin 14s linear infinite",
+							}}
+						/>
+						<div
+							className="absolute"
+							style={{
+								inset: 60,
+								borderRadius: "50%",
+								border: `2px solid ${mood.accent}`,
+								boxShadow: `0 0 24px ${mood.accent}`,
+							}}
+						/>
+						<div
+							className="absolute"
+							style={{
+								left: "50%",
+								top: 0,
+								bottom: 0,
+								width: 1,
+								background: `linear-gradient(180deg, transparent, ${mood.accent}, transparent)`,
+								animation: "viral-scan 1.6s ease-in-out infinite",
+							}}
+						/>
+						<div
+							className="absolute"
+							style={{
+								left: "50%",
+								top: "50%",
+								width: 6,
+								height: 6,
+								background: mood.accent,
+								borderRadius: "50%",
+								transform: "translate(-50%,-50%)",
+								boxShadow: `0 0 16px ${mood.accent}`,
+							}}
+						/>
+					</div>
+				</div>
+
+				{/* readout */}
+				<div>
+					<div
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 11,
+							color: mood.inkDim,
+							letterSpacing: "0.2em",
+							marginBottom: 12,
+						}}
+					>
+						EVENTS // {matchSummary.eventCount} CAPTURED · {matchSummary.snapshotCount} SAMPLES
+					</div>
+					<h1
+						style={{
+							fontFamily: FONT_DISPLAY,
+							fontSize: 88,
+							lineHeight: 0.88,
+							color: mood.ink,
+							margin: 0,
+							letterSpacing: "0.01em",
+						}}
+					>
+						THE MODEL
+						<br />
+						IS{" "}
+						<span style={{ color: mood.accent, fontStyle: "italic" }}>
+							WATCHING.
+						</span>
+					</h1>
+					<div
+						className="mt-5"
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 12,
+							color: mood.inkDim,
+							lineHeight: 1.8,
+						}}
+					>
+						gemini-2.5-flash · viral_classifier · threshold ≥ 70
+					</div>
+				</div>
+			</div>
+
+			<div className="absolute right-8 bottom-14 left-8 flex items-center gap-4">
+				<div
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 11,
+						color: mood.inkDim,
+						letterSpacing: "0.2em",
+					}}
+				>
+					SCAN
+				</div>
+				<div
+					className="relative flex-1 overflow-hidden"
+					style={{ height: 2, background: `${mood.inkDim}30` }}
+				>
+					<div
+						className="absolute h-full"
+						style={{
+							width: "40%",
+							background: `linear-gradient(90deg, transparent, ${mood.accent}, transparent)`,
+							animation: "viral-sweep 1.4s ease-in-out infinite",
+						}}
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// ---------- NO VIRAL ----------
+
+function NoViral({
+	mood,
+	matchSummary,
+	onAgain,
+}: {
+	mood: MoodToken;
+	matchSummary: Props["matchSummary"];
+	onAgain: () => void;
+}) {
+	const bars = Array.from({ length: 47 }, (_, i) => 8 + Math.abs(Math.sin(i * 1.7)) * 22);
+	return (
+		<div className="grid h-full place-items-center px-8">
+			<div className="text-center" style={{ maxWidth: 920 }}>
+				<div
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 12,
+						letterSpacing: "0.3em",
+						color: mood.inkDim,
+						marginBottom: 24,
+					}}
+				>
+					VERDICT — UNREMARKABLE
+				</div>
+				<h1
+					style={{
+						fontFamily: FONT_DISPLAY,
+						fontSize: "min(180px, 13vw)",
+						lineHeight: 0.85,
+						color: mood.ink,
+						margin: 0,
+						letterSpacing: "-0.02em",
+					}}
+				>
+					THE ALGORITHM
+					<br />
+					<span style={{ color: mood.accent, fontStyle: "italic" }}>
+						WASN'T
+					</span>
+					<br />
+					IMPRESSED.
+				</h1>
+				<div
+					className="mx-auto mt-8 leading-relaxed"
+					style={{
+						fontFamily: "var(--font-sans), system-ui, sans-serif",
+						fontSize: 16,
+						color: mood.inkDim,
+						maxWidth: 520,
+					}}
+				>
+					0 of {matchSummary.eventCount || 0} events scored above 70. No
+					clutch saves, no streak, no long shots worth a slow-mo. This
+					is on you, not the model.
+				</div>
+
+				<div
+					className="mx-auto mt-10 grid items-end gap-0.5"
+					style={{
+						height: 80,
+						gridTemplateColumns: "repeat(47, 1fr)",
+						maxWidth: 600,
+					}}
+				>
+					{bars.map((h, i) => (
+						<div
+							key={i}
+							style={{
+								height: h,
+								background: mood.inkDim,
+								opacity: 0.5,
+							}}
+						/>
+					))}
+				</div>
+				<div
+					className="mx-auto mt-2 flex justify-between"
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 10,
+						color: mood.inkDim,
+						letterSpacing: "0.2em",
+						maxWidth: 600,
+					}}
+				>
+					<span>0</span>
+					<span>THRESHOLD · 70 ───────────</span>
+					<span>100</span>
+				</div>
+
+				<div className="mt-14 flex justify-center">
+					<button
+						type="button"
+						onClick={onAgain}
+						style={{
+							fontFamily: FONT_DISPLAY,
+							fontSize: 28,
+							letterSpacing: "0.04em",
+							background: mood.accent,
+							color: "#000",
+							border: "none",
+							padding: "16px 40px",
+							cursor: "pointer",
+							boxShadow: `0 0 40px ${mood.accent}80`,
+						}}
+					>
+						RUN IT BACK →
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// ---------- DROP READY ----------
+
+function DropReady(props: {
+	mood: MoodToken;
+	viralState: ViralState;
+	editState: EditState;
+	videoState: VideoState;
+	matchSummary: Props["matchSummary"];
+	onAgain: () => void;
+}) {
+	const { mood, viralState, editState, videoState, onAgain } = props;
+	const moments = viralState.moments
+		.slice()
+		.sort((a, b) => b.score - a.score)
+		.slice(0, 4);
+	const plan = editState.plan;
+
+	return (
+		<div className="relative h-full px-14 pt-24 pb-12">
+			{/* huge mood word as background type */}
+			<div
+				className="pointer-events-none absolute"
+				style={{
+					left: -40,
+					top: 90,
+					fontFamily: FONT_DISPLAY,
+					fontSize: "min(360px, 26vw)",
+					lineHeight: 0.85,
+					color: `${mood.accent}10`,
+					letterSpacing: "-0.02em",
+					fontStyle: mood.italic ? "italic" : "normal",
+				}}
+			>
+				{mood.name}
+			</div>
+
+			<div
+				className="relative grid h-full items-center gap-8"
+				style={{ gridTemplateColumns: "380px 1fr 380px" }}
+			>
+				{/* LEFT — moments */}
+				<div>
+					<div
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 11,
+							color: mood.inkDim,
+							letterSpacing: "0.2em",
+							marginBottom: 12,
+						}}
+					>
+						{String(moments.length).padStart(2, "0")} VIRAL MOMENTS · ≥ 70
+					</div>
+					<div className="grid gap-2.5">
+						{moments.map((m, i) => (
+							<div
+								key={m.eventIndex}
+								className="grid items-baseline pt-2.5"
+								style={{
+									gridTemplateColumns: "60px 1fr 50px",
+									gap: 12,
+									borderTop: `1px solid ${mood.inkDim}30`,
+								}}
+							>
+								<div
+									style={{
+										fontFamily: FONT_DISPLAY,
+										fontSize: 44,
+										lineHeight: 0.9,
+										color: i === 0 ? mood.accent : mood.ink,
+									}}
+								>
+									{m.score}
+								</div>
+								<div>
+									<div
+										style={{
+											fontFamily: FONT_DISPLAY,
+											fontSize: 22,
+											color: mood.ink,
+											letterSpacing: "0.02em",
+										}}
+									>
+										{m.label}
+									</div>
+									<div
+										style={{
+											fontFamily: FONT_MONO,
+											fontSize: 10,
+											color: mood.inkDim,
+											letterSpacing: "0.2em",
+											marginTop: 2,
+										}}
+									>
+										{m.reason}
+									</div>
+								</div>
+								<div
+									className="self-center"
+									style={{
+										height: 4,
+										background: `${mood.inkDim}30`,
+										position: "relative",
+									}}
+								>
+									<div
+										className="absolute h-full left-0"
+										style={{
+											width: `${m.score}%`,
+											background: i === 0 ? mood.accent : mood.ink,
+										}}
+									/>
+								</div>
+							</div>
+						))}
+					</div>
+				</div>
+
+				{/* CENTER — phone bezel with the rendered clip */}
+				<PhoneBezel mood={mood} videoState={videoState} />
+
+				{/* RIGHT — edit metadata + CTA */}
+				<div className="flex h-full flex-col justify-between">
+					<div>
+						<div
+							style={{
+								fontFamily: FONT_MONO,
+								fontSize: 11,
+								color: mood.inkDim,
+								letterSpacing: "0.2em",
+								marginBottom: 8,
+							}}
+						>
+							EDIT PLAN — GEMINI · {mood.name.toLowerCase()}
+						</div>
+						<div
+							style={{
+								fontFamily: FONT_DISPLAY,
+								fontSize: "min(64px, 4.6vw)",
+								lineHeight: 0.9,
+								color: mood.ink,
+								fontStyle: mood.italic ? "italic" : "normal",
+							}}
+						>
+							YOUR
+							<br />
+							<span style={{ color: mood.accent }}>
+								{mood.tagline.split(" / ")[0]?.toUpperCase()}
+							</span>
+							<br />
+							CUT IS
+							<br />
+							READY.
+						</div>
+						<div
+							className="mt-5"
+							style={{
+								fontFamily: FONT_MONO,
+								fontSize: 11,
+								color: mood.inkDim,
+								letterSpacing: "0.15em",
+								lineHeight: 2,
+							}}
+						>
+							{plan && (
+								<>
+									<div>· {plan.shots.length} SHOTS · 9:16 · 720p</div>
+									<div>· AUDIO · {plan.audio}</div>
+									<div>
+										· TRANS={mood.transitionSig.toUpperCase()} ·
+										CAP={mood.captionStyle.toUpperCase()}
+									</div>
+									<div>· GRADE applied</div>
+								</>
+							)}
+							{!plan && <div>· directing the cut…</div>}
+						</div>
+					</div>
+
+					{/* CTA stack */}
+					<div>
+						{videoState.status === "done" && videoState.blobUrl ? (
+							<a
+								className="flex w-full items-center justify-between"
+								download="brrawl-clip.webm"
+								href={videoState.blobUrl}
+								style={{
+									fontFamily: FONT_DISPLAY,
+									fontSize: 36,
+									letterSpacing: "0.04em",
+									background: mood.accent,
+									color: "#000",
+									padding: "22px 24px",
+									cursor: "pointer",
+									boxShadow: `0 0 60px ${mood.accent}80, inset 0 0 0 2px #000`,
+									textDecoration: "none",
+								}}
+							>
+								<span>SAVE THE CLIP</span>
+								<span style={{ fontSize: 24 }}>↓</span>
+							</a>
+						) : (
+							<div
+								className="flex w-full items-center justify-between"
+								style={{
+									fontFamily: FONT_DISPLAY,
+									fontSize: 28,
+									letterSpacing: "0.04em",
+									background: `${mood.accent}30`,
+									color: mood.ink,
+									padding: "22px 24px",
+									boxShadow: `inset 0 0 0 1px ${mood.accent}50`,
+								}}
+							>
+								<span>
+									{videoState.status === "rendering"
+										? "CUTTING…"
+										: editState.status === "loading"
+											? "DIRECTING…"
+											: "PREPARING…"}
+								</span>
+								<span
+									style={{
+										fontFamily: FONT_MONO,
+										fontSize: 14,
+										color: mood.accent,
+										letterSpacing: "0.2em",
+									}}
+								>
+									{videoState.status === "rendering"
+										? `${Math.round(videoState.progress * 100)}%`
+										: "—"}
+								</span>
+							</div>
+						)}
+						<button
+							type="button"
+							onClick={onAgain}
+							className="mt-2 w-full"
+							style={{
+								fontFamily: FONT_MONO,
+								fontSize: 11,
+								letterSpacing: "0.2em",
+								background: "transparent",
+								color: mood.inkDim,
+								border: `1px solid ${mood.inkDim}40`,
+								padding: "12px 24px",
+								cursor: "pointer",
+							}}
+						>
+							RUN IT BACK
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function PhoneBezel({
+	mood,
+	videoState,
+}: {
+	mood: MoodToken;
+	videoState: VideoState;
+}) {
+	return (
+		<div className="relative grid place-items-center">
+			<div
+				className="pointer-events-none absolute"
+				style={{
+					width: 460,
+					height: 700,
+					background: `radial-gradient(ellipse at center, ${mood.accent}30 0%, transparent 60%)`,
+					filter: "blur(60px)",
+				}}
+			/>
+			<div
+				className="relative overflow-hidden"
+				style={{
+					width: 320,
+					height: 600,
+					background: "#000",
+					borderRadius: 40,
+					border: `8px solid #1a1a1a`,
+					boxShadow: `0 40px 80px rgba(0,0,0,0.8), 0 0 0 1px #2a2a2a, ${mood.glow}`,
+				}}
+			>
+				<div
+					className="absolute z-10"
+					style={{
+						top: 8,
+						left: "50%",
+						transform: "translateX(-50%)",
+						width: 100,
+						height: 24,
+						background: "#000",
+						borderRadius: 12,
+					}}
+				/>
+				{videoState.status === "done" && videoState.blobUrl ? (
+					// biome-ignore lint/a11y/useMediaCaption: gameplay clip
+					<video
+						autoPlay
+						className="absolute inset-2 h-[calc(100%-16px)] w-[calc(100%-16px)] rounded-[32px]"
+						controls
+						loop
+						playsInline
+						src={videoState.blobUrl}
+					/>
+				) : (
+					<RenderProgress mood={mood} videoState={videoState} />
+				)}
+			</div>
+		</div>
+	);
+}
+
+function RenderProgress({
+	mood,
+	videoState,
+}: {
+	mood: MoodToken;
+	videoState: VideoState;
+}) {
+	const pct = Math.max(8, videoState.progress * 100);
+	return (
+		<div
+			className="absolute inset-2 flex flex-col items-center justify-center gap-4 rounded-[32px]"
+			style={{
+				background: `radial-gradient(ellipse at 50% 60%, ${mood.bgDeep} 0%, #000 80%)`,
+			}}
+		>
+			<div
+				className="text-center"
+				style={{
+					fontFamily: FONT_DISPLAY,
+					fontSize: 36,
+					lineHeight: 0.92,
+					color: mood.ink,
+					letterSpacing: "0.02em",
+				}}
+			>
+				{videoState.status === "rendering"
+					? "CUTTING\nYOUR CLIP"
+					: "QUEUING…"}
+			</div>
+			<div
+				style={{
+					height: 3,
+					width: 200,
+					background: `${mood.inkDim}40`,
+					position: "relative",
+					overflow: "hidden",
+				}}
+			>
+				<div
+					className="h-full transition-[width] duration-200"
+					style={{
+						width: `${pct}%`,
+						background: mood.accent,
+						boxShadow: `0 0 16px ${mood.accent}`,
+					}}
+				/>
+			</div>
+			<div
+				style={{
+					fontFamily: FONT_MONO,
+					fontSize: 11,
+					color: mood.inkDim,
+					letterSpacing: "0.2em",
+				}}
+			>
+				{videoState.status === "rendering"
+					? `${Math.round(videoState.progress * 100)}% · MUX`
+					: "GEMINI · directing"}
+			</div>
+		</div>
+	);
+}

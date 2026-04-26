@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditPlan } from "~/lib/ai-editor/types";
 import type { FeatureSnapshot, ViralMoment } from "~/lib/ai-editor/viral";
 import { createMusicEngine, type MusicEngine } from "./music";
+import { ViralOverlay } from "./Overlay";
 import { renderEdit } from "./renderEdit";
 import { createSfxEngine, type SfxEngine } from "./sfx";
 
@@ -1732,7 +1733,7 @@ export default function Game() {
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
 	};
 
-	const requestEdit = async () => {
+	const requestEdit = useCallback(async () => {
 		setEditState({ status: "loading", plan: null });
 		setVideoState({ status: "idle", progress: 0, blobUrl: null });
 		let plan: EditPlan;
@@ -1771,7 +1772,15 @@ export default function Game() {
 			console.error("[game] render failed", err);
 			setVideoState({ status: "error", progress: 0, blobUrl: null });
 		}
-	};
+	}, [matchSummary.blobUrl]);
+
+	// Auto-build the edit when the classifier returns viral moments.
+	useEffect(() => {
+		if (viralState.status !== "done") return;
+		if (viralState.moments.length === 0) return;
+		if (editState.status !== "idle") return;
+		void requestEdit();
+	}, [viralState.status, viralState.moments.length, editState.status, requestEdit]);
 
 	const resume = () => {
 		stateRef.current.paused = false;
@@ -1871,52 +1880,15 @@ export default function Game() {
 				)}
 
 				{hud.phase === "gameover" && (
-					<Overlay>
-						<div className="flex w-full max-w-3xl flex-col items-center gap-4 px-6">
-							<h1 className="font-extrabold text-3xl text-red-400 tracking-tight">
-								OVERRUN
-							</h1>
-							<p className="text-neutral-300 text-sm">
-								Held{" "}
-								<span className="font-bold text-white">{hud.wave}</span> wave
-								{hud.wave === 1 ? "" : "s"} · dropped{" "}
-								<span className="font-bold text-white">{hud.kills}</span> ·{" "}
-								<span className="font-bold text-white">
-									{matchSummary.eventCount}
-								</span>{" "}
-								events,{" "}
-								<span className="font-bold text-white">
-									{matchSummary.snapshotCount}
-								</span>{" "}
-								telemetry samples
-							</p>
-
-							<ViralVerdict
-								editState={editState}
-								matchSummary={matchSummary}
-								onRequestEdit={requestEdit}
-								videoState={videoState}
-								viralState={viralState}
-							/>
-
-							<div className="flex w-full flex-wrap items-center justify-center gap-3 pt-2">
-								<button
-									className="rounded-xl bg-emerald-500 px-8 py-3 font-bold text-neutral-900 shadow-lg transition hover:bg-emerald-400 active:scale-95"
-									onClick={startGame}
-									type="button"
-								>
-									REDEPLOY
-								</button>
-								<button
-									className="rounded-xl border border-neutral-700 bg-neutral-900 px-5 py-3 font-mono text-[11px] text-neutral-200 uppercase tracking-wider transition hover:border-neutral-600 hover:bg-neutral-800"
-									onClick={downloadTelemetry}
-									type="button"
-								>
-									download telemetry .json
-								</button>
-							</div>
-						</div>
-					</Overlay>
+					<ViralOverlay
+						editState={editState}
+						kills={hud.kills}
+						matchSummary={matchSummary}
+						onAgain={startGame}
+						videoState={videoState}
+						viralState={viralState}
+						wave={hud.wave}
+					/>
 				)}
 
 				{hud.phase === "playing" && hud.paused && (
@@ -1944,6 +1916,103 @@ function Overlay({ children }: { children: React.ReactNode }) {
 	return (
 		<div className="absolute inset-0 flex flex-col items-center justify-center overflow-y-auto rounded-lg bg-black/75 px-4 py-6 backdrop-blur-sm">
 			{children}
+		</div>
+	);
+}
+
+function ViralOutcome({
+	viralState,
+	videoState,
+}: {
+	viralState: { status: "idle" | "detecting" | "done"; moments: ViralMoment[] };
+	videoState: {
+		status: "idle" | "rendering" | "done" | "error";
+		progress: number;
+		blobUrl: string | null;
+	};
+}) {
+	if (viralState.status === "detecting") {
+		return (
+			<div className="flex items-center gap-3 text-neutral-400 text-sm">
+				<span className="h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+				scanning your match…
+			</div>
+		);
+	}
+
+	if (viralState.status === "done" && viralState.moments.length === 0) {
+		return (
+			<p className="max-w-xs text-center text-neutral-400 text-sm">
+				Nothing viral this time. Go for a clutch.
+			</p>
+		);
+	}
+
+	const labels = viralState.moments.slice(0, 4);
+
+	if (videoState.status === "done" && videoState.blobUrl) {
+		return (
+			<div className="flex w-full flex-col items-center gap-3">
+				<div className="flex flex-wrap justify-center gap-1.5">
+					{labels.map((m) => (
+						<span
+							className="rounded-full bg-amber-300 px-3 py-1 font-bold text-[11px] text-neutral-900 tracking-wider"
+							key={m.eventIndex}
+						>
+							{m.label}
+						</span>
+					))}
+				</div>
+				{/* biome-ignore lint/a11y/useMediaCaption: gameplay clip has no caption track */}
+				<video
+					autoPlay
+					className="block max-h-[420px] rounded-lg shadow-2xl"
+					controls
+					loop
+					playsInline
+					src={videoState.blobUrl}
+				/>
+			</div>
+		);
+	}
+
+	if (videoState.status === "error") {
+		return (
+			<p className="text-red-300 text-sm">Render failed — try again?</p>
+		);
+	}
+
+	// Detected viral moments, plan/render still in flight.
+	const progressLabel =
+		videoState.status === "rendering"
+			? "cutting your clip…"
+			: "directing your clip…";
+
+	return (
+		<div className="flex w-full flex-col items-center gap-3">
+			<div className="flex flex-wrap justify-center gap-1.5">
+				{labels.map((m) => (
+					<span
+						className="rounded-full border border-amber-300/30 bg-amber-300/15 px-3 py-1 font-mono text-[10px] text-amber-200 uppercase tracking-wider"
+						key={m.eventIndex}
+					>
+						{m.label}
+					</span>
+				))}
+			</div>
+			<div className="text-neutral-300 text-sm">{progressLabel}</div>
+			<div className="h-1 w-full max-w-xs overflow-hidden rounded bg-neutral-800">
+				<div
+					className="h-full bg-amber-300 transition-[width]"
+					style={{
+						width: `${
+							videoState.status === "rendering"
+								? Math.max(8, videoState.progress * 100)
+								: 8
+						}%`,
+					}}
+				/>
+			</div>
 		</div>
 	);
 }
