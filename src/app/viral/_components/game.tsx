@@ -1968,7 +1968,7 @@ export default function Game() {
 								}}
 								type="button"
 							>
-								DEPLOY →
+								START →
 							</button>
 						</div>
 					</MoodOverlay>
