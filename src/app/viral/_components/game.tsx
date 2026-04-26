@@ -1792,16 +1792,15 @@ export default function Game() {
 	const M = MOODS.menacing;
 	return (
 		<div
-			className="relative select-none"
+			className="relative flex select-none flex-col"
 			style={{
-				width: ARENA_W + 32,
-				maxWidth: "100vw",
+				width: "100%",
+				height: "100%",
+				maxWidth: "100%",
 				background: M.surface,
-				border: `1px solid ${M.inkDim}30`,
-				padding: 16,
+				padding: "10px 8px",
 				color: M.ink,
 				fontFamily: "var(--font-sans), system-ui, sans-serif",
-				boxShadow: `0 30px 80px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02)`,
 			}}
 		>
 			<DeviceCorners color={M.accent} />
@@ -1856,13 +1855,14 @@ export default function Game() {
 				</span>
 			</div>
 
-			<div className="relative" style={{ width: ARENA_W, height: ARENA_H }}>
+			<div
+				className="relative w-full"
+				style={{ aspectRatio: `${ARENA_W} / ${ARENA_H}` }}
+			>
 				<canvas
-					className="block"
+					className="absolute inset-0 block h-full w-full"
 					ref={canvasRef}
 					style={{
-						width: ARENA_W,
-						height: ARENA_H,
 						cursor: hud.phase === "playing" && !hud.paused ? "none" : "default",
 						filter:
 							hud.phase === "playing"

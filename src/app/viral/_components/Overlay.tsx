@@ -34,7 +34,7 @@ export function ViralOverlay(props: Props) {
 
 	return (
 		<div
-			className="fixed inset-0 z-50 overflow-hidden"
+			className="absolute inset-0 z-50 overflow-hidden"
 			style={{
 				background: `radial-gradient(ellipse at 60% 35%, ${mood.bgDeep} 0%, #000 70%)`,
 				color: mood.ink,
