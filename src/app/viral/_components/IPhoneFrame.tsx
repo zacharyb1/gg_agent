@@ -24,9 +24,9 @@ export function IPhoneFrame({
 		<div
 			className="relative"
 			style={{
-				width: isLandscape ? "min(880px, 94vw)" : "min(420px, 94vw)",
+				width: isLandscape ? "min(1080px, 96vw)" : "min(500px, 96vw)",
 				aspectRatio: isLandscape ? "2796 / 1419" : "1419 / 2796",
-				maxHeight: isLandscape ? "78vh" : "94vh",
+				maxHeight: isLandscape ? "88vh" : "96vh",
 				transition:
 					"width 600ms cubic-bezier(.22,1,.36,1), aspect-ratio 600ms cubic-bezier(.22,1,.36,1)",
 				filter: "drop-shadow(0 40px 80px rgba(0,0,0,0.6))",

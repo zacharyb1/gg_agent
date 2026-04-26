@@ -1866,11 +1866,13 @@ export default function Game() {
 
 			<div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
 				<div
-					className="relative"
+					className="relative overflow-hidden"
 					style={{
 						height: "100%",
 						aspectRatio: `${ARENA_W} / ${ARENA_H}`,
 						maxWidth: "100%",
+						borderRadius: 18,
+						boxShadow: `inset 0 0 0 1px ${M.inkDim}30`,
 					}}
 				>
 					<canvas
@@ -1883,6 +1885,7 @@ export default function Game() {
 								hud.phase === "playing"
 									? "saturate(0.92) contrast(1.06) brightness(0.98)"
 									: "saturate(0.5) brightness(0.7)",
+							borderRadius: 18,
 						}}
 					/>
 				</div>

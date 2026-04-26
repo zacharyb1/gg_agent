@@ -208,32 +208,29 @@ function Detecting({
 	mood: MoodToken;
 	matchSummary: Props["matchSummary"];
 }) {
+	const reticleSize = "min(40vh, 180px)";
 	return (
-		<div className="grid h-full place-items-center px-8">
+		<div className="grid h-full place-items-center px-4">
 			<div
-				className="grid items-center gap-20"
-				style={{
-					gridTemplateColumns: "1fr 480px",
-					maxWidth: 1100,
-					width: "100%",
-				}}
+				className="flex w-full items-center justify-center gap-6"
+				style={{ maxWidth: 720 }}
 			>
 				{/* reticle */}
-				<div className="relative flex justify-center">
+				<div className="relative flex shrink-0 justify-center">
 					<div
 						className="relative"
 						style={{
-							width: 280,
-							height: 280,
+							width: reticleSize,
+							height: reticleSize,
 							borderRadius: "50%",
 							border: `1px solid ${mood.accent}40`,
-							boxShadow: `inset 0 0 60px ${mood.accent}20, 0 0 80px ${mood.accent}30`,
+							boxShadow: `inset 0 0 40px ${mood.accent}20, 0 0 50px ${mood.accent}30`,
 						}}
 					>
 						<div
 							className="absolute"
 							style={{
-								inset: 24,
+								inset: "8%",
 								borderRadius: "50%",
 								border: `1px dashed ${mood.accent}60`,
 								animation: "viral-spin 14s linear infinite",
@@ -242,7 +239,7 @@ function Detecting({
 						<div
 							className="absolute"
 							style={{
-								inset: 60,
+								inset: "20%",
 								borderRadius: "50%",
 								border: `2px solid ${mood.accent}`,
 								boxShadow: `0 0 24px ${mood.accent}`,
@@ -276,23 +273,23 @@ function Detecting({
 				</div>
 
 				{/* readout */}
-				<div>
+				<div className="min-w-0">
 					<div
 						style={{
 							fontFamily: FONT_MONO,
-							fontSize: 11,
+							fontSize: 9,
 							color: mood.inkDim,
 							letterSpacing: "0.2em",
-							marginBottom: 12,
+							marginBottom: 8,
 						}}
 					>
-						EVENTS // {matchSummary.eventCount} CAPTURED · {matchSummary.snapshotCount} SAMPLES
+						EVENTS · {matchSummary.eventCount} · {matchSummary.snapshotCount}
 					</div>
 					<h1
 						style={{
 							fontFamily: FONT_DISPLAY,
-							fontSize: 88,
-							lineHeight: 0.88,
+							fontSize: "clamp(28px, 5.5vw, 56px)",
+							lineHeight: 0.9,
 							color: mood.ink,
 							margin: 0,
 							letterSpacing: "0.01em",
@@ -306,24 +303,25 @@ function Detecting({
 						</span>
 					</h1>
 					<div
-						className="mt-5"
+						className="mt-3"
 						style={{
 							fontFamily: FONT_MONO,
-							fontSize: 12,
+							fontSize: 9,
 							color: mood.inkDim,
 							lineHeight: 1.8,
+							letterSpacing: "0.15em",
 						}}
 					>
-						gemini-2.5-flash · viral_classifier · threshold ≥ 70
+						GEMINI · viral_classifier · ≥ 70
 					</div>
 				</div>
 			</div>
 
-			<div className="absolute right-8 bottom-14 left-8 flex items-center gap-4">
+			<div className="absolute right-6 bottom-6 left-6 flex items-center gap-3">
 				<div
 					style={{
 						fontFamily: FONT_MONO,
-						fontSize: 11,
+						fontSize: 9,
 						color: mood.inkDim,
 						letterSpacing: "0.2em",
 					}}
@@ -359,17 +357,20 @@ function NoViral({
 	matchSummary: Props["matchSummary"];
 	onAgain: () => void;
 }) {
-	const bars = Array.from({ length: 47 }, (_, i) => 8 + Math.abs(Math.sin(i * 1.7)) * 22);
+	const bars = Array.from(
+		{ length: 32 },
+		(_, i) => 6 + Math.abs(Math.sin(i * 1.7)) * 18,
+	);
 	return (
-		<div className="grid h-full place-items-center px-8">
-			<div className="text-center" style={{ maxWidth: 920 }}>
+		<div className="grid h-full place-items-center px-4">
+			<div className="text-center">
 				<div
 					style={{
 						fontFamily: FONT_MONO,
-						fontSize: 12,
+						fontSize: 9,
 						letterSpacing: "0.3em",
 						color: mood.inkDim,
-						marginBottom: 24,
+						marginBottom: 12,
 					}}
 				>
 					VERDICT — UNREMARKABLE
@@ -377,8 +378,8 @@ function NoViral({
 				<h1
 					style={{
 						fontFamily: FONT_DISPLAY,
-						fontSize: "min(180px, 13vw)",
-						lineHeight: 0.85,
+						fontSize: "clamp(36px, 7vw, 80px)",
+						lineHeight: 0.88,
 						color: mood.ink,
 						margin: 0,
 						letterSpacing: "-0.02em",
@@ -388,30 +389,28 @@ function NoViral({
 					<br />
 					<span style={{ color: mood.accent, fontStyle: "italic" }}>
 						WASN'T
-					</span>
-					<br />
+					</span>{" "}
 					IMPRESSED.
 				</h1>
 				<div
-					className="mx-auto mt-8 leading-relaxed"
+					className="mx-auto mt-3 leading-snug"
 					style={{
 						fontFamily: "var(--font-sans), system-ui, sans-serif",
-						fontSize: 16,
+						fontSize: 12,
 						color: mood.inkDim,
-						maxWidth: 520,
+						maxWidth: 360,
 					}}
 				>
-					0 of {matchSummary.eventCount || 0} events scored above 70. No
-					clutch saves, no streak, no long shots worth a slow-mo. This
-					is on you, not the model.
+					0 of {matchSummary.eventCount || 0} events cleared 70. No
+					clutch, no streak, no long shot. This is on you.
 				</div>
 
 				<div
-					className="mx-auto mt-10 grid items-end gap-0.5"
+					className="mx-auto mt-5 grid items-end gap-0.5"
 					style={{
-						height: 80,
-						gridTemplateColumns: "repeat(47, 1fr)",
-						maxWidth: 600,
+						height: 40,
+						gridTemplateColumns: "repeat(32, 1fr)",
+						maxWidth: 360,
 					}}
 				>
 					{bars.map((h, i) => (
@@ -425,35 +424,21 @@ function NoViral({
 						/>
 					))}
 				</div>
-				<div
-					className="mx-auto mt-2 flex justify-between"
-					style={{
-						fontFamily: FONT_MONO,
-						fontSize: 10,
-						color: mood.inkDim,
-						letterSpacing: "0.2em",
-						maxWidth: 600,
-					}}
-				>
-					<span>0</span>
-					<span>THRESHOLD · 70 ───────────</span>
-					<span>100</span>
-				</div>
 
-				<div className="mt-14 flex justify-center">
+				<div className="mt-7">
 					<button
 						type="button"
 						onClick={onAgain}
 						style={{
 							fontFamily: FONT_DISPLAY,
-							fontSize: 28,
+							fontSize: 22,
 							letterSpacing: "0.04em",
 							background: mood.accent,
 							color: "#000",
 							border: "none",
-							padding: "16px 40px",
+							padding: "10px 28px",
 							cursor: "pointer",
-							boxShadow: `0 0 40px ${mood.accent}80`,
+							boxShadow: `0 0 30px ${mood.accent}70`,
 						}}
 					>
 						RUN IT BACK →
@@ -478,246 +463,193 @@ function DropReady(props: {
 	const moments = viralState.moments
 		.slice()
 		.sort((a, b) => b.score - a.score)
-		.slice(0, 4);
-	const plan = editState.plan;
+		.slice(0, 3);
+	const isReady = videoState.status === "done" && !!videoState.blobUrl;
+	const progressLabel =
+		videoState.status === "rendering"
+			? "CUTTING…"
+			: editState.status === "loading"
+				? "DIRECTING…"
+				: "PREPARING…";
+	const pct = Math.round(videoState.progress * 100);
 
 	return (
-		<div className="relative h-full px-14 pt-24 pb-12">
-			{/* huge mood word as background type */}
+		<div className="relative flex h-full flex-col items-center justify-between gap-3 px-3 pt-3 pb-4">
+			{/* huge mood word backdrop */}
 			<div
 				className="pointer-events-none absolute"
 				style={{
-					left: -40,
-					top: 90,
+					left: "-2%",
+					top: "10%",
 					fontFamily: FONT_DISPLAY,
-					fontSize: "min(360px, 26vw)",
+					fontSize: "clamp(120px, 38vh, 280px)",
 					lineHeight: 0.85,
 					color: `${mood.accent}10`,
 					letterSpacing: "-0.02em",
 					fontStyle: mood.italic ? "italic" : "normal",
+					whiteSpace: "nowrap",
 				}}
 			>
 				{mood.name}
 			</div>
 
-			<div
-				className="relative grid h-full items-center gap-8"
-				style={{ gridTemplateColumns: "380px 1fr 380px" }}
-			>
-				{/* LEFT — moments */}
-				<div>
-					<div
+			{/* TOP — moment chips */}
+			<div className="relative flex w-full flex-wrap items-center justify-center gap-1.5">
+				<span
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 9,
+						letterSpacing: "0.22em",
+						color: mood.inkDim,
+					}}
+				>
+					{String(moments.length).padStart(2, "0")} VIRAL · MOOD={mood.name}
+				</span>
+				{moments.map((m) => (
+					<span
+						key={m.eventIndex}
 						style={{
 							fontFamily: FONT_MONO,
-							fontSize: 11,
-							color: mood.inkDim,
-							letterSpacing: "0.2em",
-							marginBottom: 12,
+							fontSize: 9,
+							letterSpacing: "0.18em",
+							background: isReady ? mood.accent : `${mood.accent}25`,
+							color: isReady ? "#000" : mood.ink,
+							padding: "3px 8px",
+							border: `1px solid ${mood.accent}50`,
 						}}
 					>
-						{String(moments.length).padStart(2, "0")} VIRAL MOMENTS · ≥ 70
-					</div>
-					<div className="grid gap-2.5">
-						{moments.map((m, i) => (
-							<div
-								key={m.eventIndex}
-								className="grid items-baseline pt-2.5"
-								style={{
-									gridTemplateColumns: "60px 1fr 50px",
-									gap: 12,
-									borderTop: `1px solid ${mood.inkDim}30`,
-								}}
-							>
-								<div
-									style={{
-										fontFamily: FONT_DISPLAY,
-										fontSize: 44,
-										lineHeight: 0.9,
-										color: i === 0 ? mood.accent : mood.ink,
-									}}
-								>
-									{m.score}
-								</div>
-								<div>
-									<div
-										style={{
-											fontFamily: FONT_DISPLAY,
-											fontSize: 22,
-											color: mood.ink,
-											letterSpacing: "0.02em",
-										}}
-									>
-										{m.label}
-									</div>
-									<div
-										style={{
-											fontFamily: FONT_MONO,
-											fontSize: 10,
-											color: mood.inkDim,
-											letterSpacing: "0.2em",
-											marginTop: 2,
-										}}
-									>
-										{m.reason}
-									</div>
-								</div>
-								<div
-									className="self-center"
-									style={{
-										height: 4,
-										background: `${mood.inkDim}30`,
-										position: "relative",
-									}}
-								>
-									<div
-										className="absolute h-full left-0"
-										style={{
-											width: `${m.score}%`,
-											background: i === 0 ? mood.accent : mood.ink,
-										}}
-									/>
-								</div>
-							</div>
-						))}
-					</div>
-				</div>
+						{m.label}
+					</span>
+				))}
+			</div>
 
-				{/* CENTER — phone bezel with the rendered clip */}
-				<PhoneBezel mood={mood} videoState={videoState} />
-
-				{/* RIGHT — edit metadata + CTA */}
-				<div className="flex h-full flex-col justify-between">
-					<div>
-						<div
-							style={{
-								fontFamily: FONT_MONO,
-								fontSize: 11,
-								color: mood.inkDim,
-								letterSpacing: "0.2em",
-								marginBottom: 8,
-							}}
-						>
-							EDIT PLAN — GEMINI · {mood.name.toLowerCase()}
-						</div>
+			{/* MIDDLE — video or render progress */}
+			<div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+				{isReady ? (
+					<div
+						className="relative h-full"
+						style={{
+							aspectRatio: "9 / 16",
+							maxWidth: "100%",
+							boxShadow: mood.glow,
+						}}
+					>
+						{/* biome-ignore lint/a11y/useMediaCaption: gameplay clip */}
+						<video
+							autoPlay
+							className="absolute inset-0 h-full w-full"
+							controls
+							loop
+							playsInline
+							src={videoState.blobUrl ?? undefined}
+							style={{ borderRadius: 14, background: "#000" }}
+						/>
+					</div>
+				) : (
+					<div className="flex flex-col items-center gap-3">
 						<div
 							style={{
 								fontFamily: FONT_DISPLAY,
-								fontSize: "min(64px, 4.6vw)",
-								lineHeight: 0.9,
+								fontSize: "clamp(40px, 8vw, 96px)",
+								lineHeight: 0.88,
 								color: mood.ink,
+								textAlign: "center",
 								fontStyle: mood.italic ? "italic" : "normal",
 							}}
 						>
-							YOUR
-							<br />
+							YOUR{" "}
 							<span style={{ color: mood.accent }}>
 								{mood.tagline.split(" / ")[0]?.toUpperCase()}
 							</span>
 							<br />
-							CUT IS
-							<br />
-							READY.
+							CUT IS COMING.
 						</div>
 						<div
-							className="mt-5"
+							className="relative h-1 w-56 overflow-hidden"
+							style={{ background: `${mood.inkDim}40` }}
+						>
+							<div
+								className="h-full"
+								style={{
+									width: `${Math.max(8, pct)}%`,
+									background: mood.accent,
+									boxShadow: `0 0 16px ${mood.accent}`,
+									transition: "width 200ms ease",
+								}}
+							/>
+						</div>
+						<div
 							style={{
 								fontFamily: FONT_MONO,
-								fontSize: 11,
+								fontSize: 9,
+								letterSpacing: "0.22em",
 								color: mood.inkDim,
-								letterSpacing: "0.15em",
-								lineHeight: 2,
 							}}
 						>
-							{plan && (
-								<>
-									<div>· {plan.shots.length} SHOTS · 9:16 · 720p</div>
-									<div>· AUDIO · {plan.audio}</div>
-									<div>
-										· TRANS={mood.transitionSig.toUpperCase()} ·
-										CAP={mood.captionStyle.toUpperCase()}
-									</div>
-									<div>· GRADE applied</div>
-								</>
-							)}
-							{!plan && <div>· directing the cut…</div>}
+							{progressLabel} · {pct}%
 						</div>
 					</div>
+				)}
+			</div>
 
-					{/* CTA stack */}
-					<div>
-						{videoState.status === "done" && videoState.blobUrl ? (
-							<a
-								className="flex w-full items-center justify-between"
-								download="brrawl-clip.webm"
-								href={videoState.blobUrl}
-								style={{
-									fontFamily: FONT_DISPLAY,
-									fontSize: 36,
-									letterSpacing: "0.04em",
-									background: mood.accent,
-									color: "#000",
-									padding: "22px 24px",
-									cursor: "pointer",
-									boxShadow: `0 0 60px ${mood.accent}80, inset 0 0 0 2px #000`,
-									textDecoration: "none",
-								}}
-							>
-								<span>SAVE THE CLIP</span>
-								<span style={{ fontSize: 24 }}>↓</span>
-							</a>
-						) : (
-							<div
-								className="flex w-full items-center justify-between"
-								style={{
-									fontFamily: FONT_DISPLAY,
-									fontSize: 28,
-									letterSpacing: "0.04em",
-									background: `${mood.accent}30`,
-									color: mood.ink,
-									padding: "22px 24px",
-									boxShadow: `inset 0 0 0 1px ${mood.accent}50`,
-								}}
-							>
-								<span>
-									{videoState.status === "rendering"
-										? "CUTTING…"
-										: editState.status === "loading"
-											? "DIRECTING…"
-											: "PREPARING…"}
-								</span>
-								<span
-									style={{
-										fontFamily: FONT_MONO,
-										fontSize: 14,
-										color: mood.accent,
-										letterSpacing: "0.2em",
-									}}
-								>
-									{videoState.status === "rendering"
-										? `${Math.round(videoState.progress * 100)}%`
-										: "—"}
-								</span>
-							</div>
-						)}
+			{/* BOTTOM — CTA */}
+			<div className="relative flex w-full items-center justify-center gap-2">
+				{isReady ? (
+					<>
+						<a
+							className="flex items-center gap-2"
+							download="brrawl-clip.webm"
+							href={videoState.blobUrl ?? undefined}
+							style={{
+								fontFamily: FONT_DISPLAY,
+								fontSize: "clamp(20px, 3vw, 30px)",
+								letterSpacing: "0.04em",
+								background: mood.accent,
+								color: "#000",
+								padding: "10px 26px",
+								cursor: "pointer",
+								boxShadow: `0 0 40px ${mood.accent}80`,
+								textDecoration: "none",
+							}}
+						>
+							<span>SAVE CLIP</span>
+							<span>↓</span>
+						</a>
 						<button
 							type="button"
 							onClick={onAgain}
-							className="mt-2 w-full"
 							style={{
 								fontFamily: FONT_MONO,
-								fontSize: 11,
-								letterSpacing: "0.2em",
+								fontSize: 10,
+								letterSpacing: "0.22em",
 								background: "transparent",
 								color: mood.inkDim,
 								border: `1px solid ${mood.inkDim}40`,
-								padding: "12px 24px",
+								padding: "9px 16px",
 								cursor: "pointer",
 							}}
 						>
-							RUN IT BACK
+							AGAIN
 						</button>
-					</div>
-				</div>
+					</>
+				) : (
+					<button
+						type="button"
+						onClick={onAgain}
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 10,
+							letterSpacing: "0.22em",
+							background: "transparent",
+							color: mood.inkDim,
+							border: `1px solid ${mood.inkDim}40`,
+							padding: "9px 16px",
+							cursor: "pointer",
+						}}
+					>
+						CANCEL
+					</button>
+				)}
 			</div>
 		</div>
 	);
