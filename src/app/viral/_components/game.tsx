@@ -1776,13 +1776,8 @@ export default function Game() {
 		}
 	}, [matchSummary.blobUrl]);
 
-	// Auto-build the edit when the classifier returns viral moments.
-	useEffect(() => {
-		if (viralState.status !== "done") return;
-		if (viralState.moments.length === 0) return;
-		if (editState.status !== "idle") return;
-		void requestEdit();
-	}, [viralState.status, viralState.moments.length, editState.status, requestEdit]);
+	// requestEdit is now triggered manually from the VERDICT screen's
+	// MAKE CLIP button, not auto-fired.
 
 	const resume = () => {
 		stateRef.current.paused = false;
@@ -1985,6 +1980,7 @@ export default function Game() {
 						kills={hud.kills}
 						matchSummary={matchSummary}
 						onAgain={startGame}
+						onMakeClip={() => void requestEdit()}
 						videoState={videoState}
 						viralState={viralState}
 						wave={hud.wave}

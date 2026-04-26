@@ -26,6 +26,7 @@ type Props = {
 	wave: number;
 	kills: number;
 	onAgain: () => void;
+	onMakeClip: () => void;
 };
 
 export function ViralOverlay(props: Props) {
@@ -459,13 +460,28 @@ function DropReady(props: {
 	videoState: VideoState;
 	matchSummary: Props["matchSummary"];
 	onAgain: () => void;
+	onMakeClip: () => void;
 }) {
-	const { mood, viralState, editState, videoState, onAgain } = props;
+	const { mood, viralState, editState, videoState, onAgain, onMakeClip } = props;
 	const moments = viralState.moments
 		.slice()
 		.sort((a, b) => b.score - a.score)
-		.slice(0, 3);
+		.slice(0, 4);
 	const isReady = videoState.status === "done" && !!videoState.blobUrl;
+	const isCooking =
+		editState.status === "loading" || videoState.status === "rendering";
+	const isVerdict = !isReady && !isCooking && editState.status === "idle";
+
+	if (isVerdict)
+		return (
+			<Verdict
+				mood={mood}
+				moments={moments}
+				onMakeClip={onMakeClip}
+				onSkip={onAgain}
+			/>
+		);
+
 	const progressLabel =
 		videoState.status === "rendering"
 			? "CUTTING…"
@@ -474,49 +490,239 @@ function DropReady(props: {
 				: "PREPARING…";
 	const pct = Math.round(videoState.progress * 100);
 
+	if (isCooking)
+		return (
+			<Cooking
+				mood={mood}
+				moments={moments}
+				pct={pct}
+				progressLabel={progressLabel}
+			/>
+		);
+
+	// Final state — video is ready
 	return (
-		<div className="relative flex h-full flex-col items-center justify-between gap-3 px-3 pt-3 pb-4">
-			{/* huge mood word backdrop */}
-			<div
-				className="pointer-events-none absolute"
-				style={{
-					left: "-2%",
-					top: "10%",
-					fontFamily: FONT_DISPLAY,
-					fontSize: "clamp(120px, 38vh, 280px)",
-					lineHeight: 0.85,
-					color: `${mood.accent}10`,
-					letterSpacing: "-0.02em",
-					fontStyle: mood.italic ? "italic" : "normal",
-					whiteSpace: "nowrap",
-				}}
-			>
-				{mood.name}
+		<Final
+			mood={mood}
+			moments={moments}
+			onAgain={onAgain}
+			videoBlobUrl={videoState.blobUrl ?? undefined}
+		/>
+	);
+}
+
+function MoodSwatches({ mood }: { mood: MoodToken }) {
+	const dotStyle = { width: 10, height: 10 };
+	return (
+		<div className="absolute top-3 right-3 flex items-center gap-1">
+			<span style={{ ...dotStyle, background: mood.accent }} />
+			<span style={{ ...dotStyle, background: mood.accent2 }} />
+			<span style={{ ...dotStyle, background: mood.ink }} />
+		</div>
+	);
+}
+
+function MoodTag({ mood }: { mood: MoodToken }) {
+	return (
+		<div
+			className="absolute top-3 left-3"
+			style={{
+				fontFamily: FONT_MONO,
+				fontSize: 10,
+				letterSpacing: "0.22em",
+				color: mood.inkDim,
+			}}
+		>
+			MOOD={mood.name}
+		</div>
+	);
+}
+
+function HugeMoodBg({ mood }: { mood: MoodToken }) {
+	return (
+		<div
+			className="pointer-events-none absolute"
+			style={{
+				left: "-2%",
+				top: "12%",
+				fontFamily: FONT_DISPLAY,
+				fontSize: "clamp(140px, 42vh, 320px)",
+				lineHeight: 0.85,
+				color: `${mood.accent}12`,
+				letterSpacing: "-0.02em",
+				fontStyle: mood.italic ? "italic" : "normal",
+				whiteSpace: "nowrap",
+			}}
+		>
+			{mood.name}
+		</div>
+	);
+}
+
+function Verdict({
+	mood,
+	moments,
+	onMakeClip,
+	onSkip,
+}: {
+	mood: MoodToken;
+	moments: ViralMoment[];
+	onMakeClip: () => void;
+	onSkip: () => void;
+}) {
+	return (
+		<div className="relative flex h-full flex-col justify-between px-6 pt-6 pb-7">
+			<MoodTag mood={mood} />
+			<MoodSwatches mood={mood} />
+			<HugeMoodBg mood={mood} />
+
+			{/* HEADLINE */}
+			<div className="relative flex flex-1 items-center">
+				<div>
+					<div
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 11,
+							letterSpacing: "0.32em",
+							color: mood.inkDim,
+							marginBottom: 8,
+						}}
+					>
+						VERDICT — VIRAL
+					</div>
+					<h1
+						style={{
+							fontFamily: FONT_DISPLAY,
+							fontSize: "clamp(56px, 9vw, 130px)",
+							lineHeight: 0.86,
+							color: mood.ink,
+							margin: 0,
+							letterSpacing: "-0.01em",
+							fontStyle: mood.italic ? "italic" : "normal",
+						}}
+					>
+						YOUR{" "}
+						<span style={{ color: mood.accent }}>{mood.name}</span>
+						<br />
+						CUT IS READY.
+					</h1>
+				</div>
 			</div>
 
-			{/* TOP — moment chips */}
-			<div className="relative flex w-full flex-wrap items-center justify-center gap-1.5">
+			{/* CTA + tagline */}
+			<div className="relative flex flex-wrap items-center gap-3">
+				<button
+					className="flex items-center gap-2"
+					onClick={onMakeClip}
+					style={{
+						fontFamily: FONT_DISPLAY,
+						fontSize: "clamp(22px, 3vw, 34px)",
+						letterSpacing: "0.04em",
+						background: mood.accent,
+						color: "#000",
+						padding: "12px 26px",
+						border: "none",
+						cursor: "pointer",
+						boxShadow: `0 0 50px ${mood.accent}80`,
+					}}
+					type="button"
+				>
+					<span>MAKE CLIP</span>
+					<span>↓</span>
+				</button>
+				<button
+					onClick={onSkip}
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 11,
+						letterSpacing: "0.22em",
+						background: "transparent",
+						color: mood.inkDim,
+						border: `1px solid ${mood.inkDim}50`,
+						padding: "11px 18px",
+						cursor: "pointer",
+					}}
+					type="button"
+				>
+					SKIP
+				</button>
 				<span
 					style={{
 						fontFamily: FONT_MONO,
-						fontSize: 9,
-						letterSpacing: "0.22em",
+						fontSize: 11,
+						letterSpacing: "0.18em",
 						color: mood.inkDim,
+						marginLeft: "auto",
 					}}
 				>
-					{String(moments.length).padStart(2, "0")} VIRAL · MOOD={mood.name}
+					{mood.tagline}
 				</span>
-				{moments.map((m) => (
+			</div>
+		</div>
+	);
+}
+
+function Cooking({
+	mood,
+	moments,
+	pct,
+	progressLabel,
+}: {
+	mood: MoodToken;
+	moments: ViralMoment[];
+	pct: number;
+	progressLabel: string;
+}) {
+	return (
+		<div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-6">
+			<MoodTag mood={mood} />
+			<MoodSwatches mood={mood} />
+			<HugeMoodBg mood={mood} />
+
+			<div className="relative flex flex-col items-center">
+				<div
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 11,
+						letterSpacing: "0.32em",
+						color: mood.inkDim,
+						marginBottom: 14,
+					}}
+				>
+					{progressLabel}
+				</div>
+				<div
+					className="text-center"
+					style={{
+						fontFamily: FONT_DISPLAY,
+						fontSize: "clamp(48px, 7vw, 110px)",
+						lineHeight: 0.86,
+						color: mood.ink,
+						fontStyle: mood.italic ? "italic" : "normal",
+					}}
+				>
+					CUTTING YOUR{" "}
+					<span style={{ color: mood.accent }}>{mood.name}</span>{" "}
+					CUT.
+				</div>
+			</div>
+
+			{/* moment names — animate in with stagger */}
+			<div className="relative flex max-w-[88%] flex-wrap items-center justify-center gap-2">
+				{moments.map((m, i) => (
 					<span
 						key={m.eventIndex}
 						style={{
-							fontFamily: FONT_MONO,
-							fontSize: 9,
-							letterSpacing: "0.18em",
-							background: isReady ? mood.accent : `${mood.accent}25`,
-							color: isReady ? "#000" : mood.ink,
-							padding: "3px 8px",
-							border: `1px solid ${mood.accent}50`,
+							fontFamily: FONT_DISPLAY,
+							fontSize: "clamp(18px, 2.4vw, 30px)",
+							letterSpacing: "0.04em",
+							color: mood.ink,
+							background: `${mood.accent}1f`,
+							border: `1px solid ${mood.accent}80`,
+							padding: "4px 12px",
+							opacity: 0,
+							animation: `viral-fade-up 600ms ease-out forwards`,
+							animationDelay: `${300 + i * 220}ms`,
 						}}
 					>
 						{m.label}
@@ -524,133 +730,134 @@ function DropReady(props: {
 				))}
 			</div>
 
-			{/* MIDDLE — video or render progress */}
-			<div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
-				{isReady ? (
+			{/* progress strip */}
+			<div className="relative flex w-full max-w-md flex-col items-center gap-1.5">
+				<div
+					className="relative h-1 w-full overflow-hidden"
+					style={{ background: `${mood.inkDim}40` }}
+				>
 					<div
-						className="relative h-full"
+						className="h-full"
 						style={{
-							aspectRatio: "9 / 16",
-							maxWidth: "100%",
-							boxShadow: mood.glow,
+							width: `${Math.max(8, pct)}%`,
+							background: mood.accent,
+							boxShadow: `0 0 16px ${mood.accent}`,
+							transition: "width 200ms ease",
+						}}
+					/>
+				</div>
+				<div
+					className="flex w-full items-center justify-between"
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 9,
+						letterSpacing: "0.22em",
+						color: mood.inkDim,
+					}}
+				>
+					<span>RENDER · {pct}%</span>
+					<span>♪ {mood.transitionSig.toUpperCase()} · {mood.captionStyle.toUpperCase()}</span>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function Final({
+	mood,
+	moments,
+	videoBlobUrl,
+	onAgain,
+}: {
+	mood: MoodToken;
+	moments: ViralMoment[];
+	videoBlobUrl: string | undefined;
+	onAgain: () => void;
+}) {
+	return (
+		<div className="relative flex h-full flex-col items-center justify-between gap-3 px-3 pt-3 pb-4">
+			<MoodTag mood={mood} />
+			<MoodSwatches mood={mood} />
+			<HugeMoodBg mood={mood} />
+
+			<div className="relative flex w-full flex-wrap items-center justify-center gap-1.5">
+				{moments.map((m) => (
+					<span
+						key={m.eventIndex}
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 9,
+							letterSpacing: "0.18em",
+							background: mood.accent,
+							color: "#000",
+							padding: "3px 8px",
 						}}
 					>
-						{/* biome-ignore lint/a11y/useMediaCaption: gameplay clip */}
+						{m.label}
+					</span>
+				))}
+			</div>
+
+			<div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+				<div
+					className="relative h-full"
+					style={{
+						aspectRatio: "9 / 16",
+						maxWidth: "100%",
+						boxShadow: mood.glow,
+					}}
+				>
+					{videoBlobUrl && (
+						/* biome-ignore lint/a11y/useMediaCaption: gameplay clip */
 						<video
 							autoPlay
 							className="absolute inset-0 h-full w-full"
 							controls
 							loop
 							playsInline
-							src={videoState.blobUrl ?? undefined}
+							src={videoBlobUrl}
 							style={{ borderRadius: 14, background: "#000" }}
 						/>
-					</div>
-				) : (
-					<div className="flex flex-col items-center gap-3">
-						<div
-							style={{
-								fontFamily: FONT_DISPLAY,
-								fontSize: "clamp(40px, 8vw, 96px)",
-								lineHeight: 0.88,
-								color: mood.ink,
-								textAlign: "center",
-								fontStyle: mood.italic ? "italic" : "normal",
-							}}
-						>
-							YOUR{" "}
-							<span style={{ color: mood.accent }}>
-								{mood.tagline.split(" / ")[0]?.toUpperCase()}
-							</span>
-							<br />
-							CUT IS COMING.
-						</div>
-						<div
-							className="relative h-1 w-56 overflow-hidden"
-							style={{ background: `${mood.inkDim}40` }}
-						>
-							<div
-								className="h-full"
-								style={{
-									width: `${Math.max(8, pct)}%`,
-									background: mood.accent,
-									boxShadow: `0 0 16px ${mood.accent}`,
-									transition: "width 200ms ease",
-								}}
-							/>
-						</div>
-						<div
-							style={{
-								fontFamily: FONT_MONO,
-								fontSize: 9,
-								letterSpacing: "0.22em",
-								color: mood.inkDim,
-							}}
-						>
-							{progressLabel} · {pct}%
-						</div>
-					</div>
-				)}
+					)}
+				</div>
 			</div>
 
-			{/* BOTTOM — CTA */}
 			<div className="relative flex w-full items-center justify-center gap-2">
-				{isReady ? (
-					<>
-						<a
-							className="flex items-center gap-2"
-							download="brrawl-clip.webm"
-							href={videoState.blobUrl ?? undefined}
-							style={{
-								fontFamily: FONT_DISPLAY,
-								fontSize: "clamp(20px, 3vw, 30px)",
-								letterSpacing: "0.04em",
-								background: mood.accent,
-								color: "#000",
-								padding: "10px 26px",
-								cursor: "pointer",
-								boxShadow: `0 0 40px ${mood.accent}80`,
-								textDecoration: "none",
-							}}
-						>
-							<span>SAVE CLIP</span>
-							<span>↓</span>
-						</a>
-						<button
-							type="button"
-							onClick={onAgain}
-							style={{
-								fontFamily: FONT_MONO,
-								fontSize: 10,
-								letterSpacing: "0.22em",
-								background: "transparent",
-								color: mood.inkDim,
-								border: `1px solid ${mood.inkDim}40`,
-								padding: "9px 16px",
-								cursor: "pointer",
-							}}
-						>
-							AGAIN
-						</button>
-					</>
-				) : (
-					<button
-						type="button"
-						onClick={onAgain}
-						style={{
-							fontFamily: FONT_MONO,
-							fontSize: 10,
-							letterSpacing: "0.22em",
-							background: "transparent",
-							color: mood.inkDim,
-							border: `1px solid ${mood.inkDim}40`,
-							padding: "9px 16px",
-							cursor: "pointer",
-						}}
-					>
-						CANCEL
-					</button>
-				)}
+				<a
+					className="flex items-center gap-2"
+					download="brrawl-clip.webm"
+					href={videoBlobUrl}
+					style={{
+						fontFamily: FONT_DISPLAY,
+						fontSize: "clamp(22px, 3vw, 32px)",
+						letterSpacing: "0.04em",
+						background: mood.accent,
+						color: "#000",
+						padding: "10px 26px",
+						cursor: "pointer",
+						boxShadow: `0 0 40px ${mood.accent}80`,
+						textDecoration: "none",
+					}}
+				>
+					<span>SAVE CLIP</span>
+					<span>↓</span>
+				</a>
+				<button
+					type="button"
+					onClick={onAgain}
+					style={{
+						fontFamily: FONT_MONO,
+						fontSize: 10,
+						letterSpacing: "0.22em",
+						background: "transparent",
+						color: mood.inkDim,
+						border: `1px solid ${mood.inkDim}40`,
+						padding: "9px 16px",
+						cursor: "pointer",
+					}}
+				>
+					AGAIN
+				</button>
 			</div>
 		</div>
 	);
