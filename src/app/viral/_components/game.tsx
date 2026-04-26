@@ -1694,7 +1694,7 @@ export default function Game() {
 		s.phase = "playing";
 		s.sfx = sfxRef.current;
 		s.matchStartMs = performance.now();
-		startWave(s, 1);
+		startWave(s, 5);
 		stateRef.current = s;
 		musicRef.current?.start();
 		sfxRef.current?.ensureStarted();
