@@ -1,5 +1,4 @@
 import Game from "./_components/game";
-import { IPhoneFrame } from "./_components/IPhoneFrame";
 
 export const metadata = {
 	title: "Viral — AI clips your gameplay",
@@ -17,11 +16,7 @@ export default function ViralPage() {
 					filter: "blur(60px)",
 				}}
 			/>
-			<IPhoneFrame>
-				<div className="absolute inset-0 flex h-full w-full items-center justify-center overflow-hidden bg-[#020305]">
-					<Game />
-				</div>
-			</IPhoneFrame>
+			<Game />
 		</main>
 	);
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditPlan } from "~/lib/ai-editor/types";
 import type { FeatureSnapshot, ViralMoment } from "~/lib/ai-editor/viral";
+import { IPhoneFrame } from "./IPhoneFrame";
 import { FONT_DISPLAY, FONT_MONO, MOODS } from "./moods";
 import { createMusicEngine, type MusicEngine } from "./music";
 import { ViralOverlay } from "./Overlay";
@@ -1790,43 +1791,68 @@ export default function Game() {
 	};
 
 	const M = MOODS.menacing;
-	return (
+	// Phone goes portrait only when the rendered vertical clip is ready —
+	// every other state (menu, playing, paused, detecting, no_viral, while
+	// the model is still working) shows a landscape phone.
+	const orientation =
+		hud.phase === "gameover" &&
+		videoState.status === "done" &&
+		videoState.blobUrl
+			? "portrait"
+			: "landscape";
+	const inner = (
 		<div
-			className="relative flex select-none flex-col"
+			className="relative flex h-full w-full select-none flex-col overflow-hidden"
 			style={{
-				width: "100%",
-				height: "100%",
-				maxWidth: "100%",
 				background: M.surface,
-				padding: "10px 8px",
+				padding: "8px 8px",
 				color: M.ink,
 				fontFamily: "var(--font-sans), system-ui, sans-serif",
 			}}
 		>
 			<DeviceCorners color={M.accent} />
-			{/* HUD strip */}
-			<div
-				className="mb-3 flex items-center gap-4"
-				style={{
-					fontFamily: FONT_MONO,
-					fontSize: 11,
-					letterSpacing: "0.18em",
-					color: M.inkDim,
-				}}
-			>
-				<span
+			{/* HUD — portrait layout: top row label + mute, second row stats + HP */}
+			<div className="mb-2 flex flex-col gap-1.5">
+				<div
+					className="flex items-center gap-2"
 					style={{
-						width: 8,
-						height: 8,
-						background: M.accent,
-						borderRadius: "50%",
-						boxShadow: `0 0 12px ${M.accent}`,
+						fontFamily: FONT_MONO,
+						fontSize: 9,
+						letterSpacing: "0.18em",
+						color: M.inkDim,
 					}}
-				/>
-				<span style={{ color: M.ink }}>VIRAL.LIVE</span>
-				<span>/</span>
-				<span>SQUAD-VS-ZOMBIES</span>
-				<span className="ml-auto flex items-center gap-5">
+				>
+					<span
+						style={{
+							width: 6,
+							height: 6,
+							background: M.accent,
+							borderRadius: "50%",
+							boxShadow: `0 0 8px ${M.accent}`,
+						}}
+					/>
+					<span style={{ color: M.ink }}>VIRAL.LIVE</span>
+					<span className="ml-auto">
+						<button
+							aria-label={muted ? "Unmute music" : "Mute music"}
+							className="cursor-pointer"
+							onClick={() => setMuted((m) => !m)}
+							style={{
+								fontFamily: FONT_MONO,
+								fontSize: 9,
+								letterSpacing: "0.2em",
+								color: muted ? M.inkDim : M.accent,
+								background: "transparent",
+								border: `1px solid ${M.inkDim}40`,
+								padding: "2px 8px",
+							}}
+							type="button"
+						>
+							♪ {muted ? "OFF" : "ON"}
+						</button>
+					</span>
+				</div>
+				<div className="flex items-center justify-between gap-2">
 					<HudStat label="WAVE" value={String(hud.wave).padStart(2, "0")} mood={M} />
 					<HudStat label="KILLS" value={String(hud.kills).padStart(3, "0")} mood={M} />
 					<HudStat
@@ -1834,44 +1860,36 @@ export default function Game() {
 						value={`${hud.alliesAlive}/${hud.alliesTotal}`}
 						mood={M}
 					/>
-					<HpStrip hp={hud.hp} max={hud.maxHp} mood={M} />
-					<button
-						aria-label={muted ? "Unmute music" : "Mute music"}
-						className="cursor-pointer"
-						onClick={() => setMuted((m) => !m)}
-						style={{
-							fontFamily: FONT_MONO,
-							fontSize: 10,
-							letterSpacing: "0.2em",
-							color: muted ? M.inkDim : M.accent,
-							background: "transparent",
-							border: `1px solid ${M.inkDim}40`,
-							padding: "4px 10px",
-						}}
-						type="button"
-					>
-						♪ {muted ? "OFF" : "ON"}
-					</button>
-				</span>
+				</div>
+				<HpStrip hp={hud.hp} max={hud.maxHp} mood={M} />
 			</div>
 
-			<div
-				className="relative w-full"
-				style={{ aspectRatio: `${ARENA_W} / ${ARENA_H}` }}
-			>
-				<canvas
-					className="absolute inset-0 block h-full w-full"
-					ref={canvasRef}
+			<div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+				<div
+					className="relative"
 					style={{
-						cursor: hud.phase === "playing" && !hud.paused ? "none" : "default",
-						filter:
-							hud.phase === "playing"
-								? "saturate(0.92) contrast(1.06) brightness(0.98)"
-								: "saturate(0.5) brightness(0.7)",
+						height: "100%",
+						aspectRatio: `${ARENA_W} / ${ARENA_H}`,
+						maxWidth: "100%",
 					}}
-				/>
+				>
+					<canvas
+						className="absolute inset-0 block h-full w-full"
+						ref={canvasRef}
+						style={{
+							cursor:
+								hud.phase === "playing" && !hud.paused ? "none" : "default",
+							filter:
+								hud.phase === "playing"
+									? "saturate(0.92) contrast(1.06) brightness(0.98)"
+									: "saturate(0.5) brightness(0.7)",
+						}}
+					/>
+				</div>
+			</div>
 
-				{hud.phase === "menu" && (
+			{/* Full-screen overlays — cover everything inside the phone */}
+			{hud.phase === "menu" && (
 					<MoodOverlay mood={M}>
 						<div className="text-center">
 							<div
@@ -1888,8 +1906,8 @@ export default function Game() {
 							<h1
 								style={{
 									fontFamily: FONT_DISPLAY,
-									fontSize: "min(140px, 11vw)",
-									lineHeight: 0.85,
+									fontSize: "clamp(36px, 7vw, 80px)",
+									lineHeight: 0.88,
 									color: M.ink,
 									margin: 0,
 									letterSpacing: "-0.01em",
@@ -1983,7 +2001,7 @@ export default function Game() {
 							<h1
 								style={{
 									fontFamily: FONT_DISPLAY,
-									fontSize: "min(180px, 14vw)",
+									fontSize: "clamp(56px, 12vw, 120px)",
 									lineHeight: 0.85,
 									color: M.ink,
 									margin: 0,
@@ -2015,22 +2033,22 @@ export default function Game() {
 						</button>
 					</MoodOverlay>
 				)}
-			</div>
 
 			<div
-				className="mt-3 flex items-center justify-between"
+				className="mt-2 flex items-center justify-between"
 				style={{
 					fontFamily: FONT_MONO,
-					fontSize: 10,
+					fontSize: 8,
 					letterSpacing: "0.18em",
 					color: M.inkDim,
 				}}
 			>
-				<span>CLICK TO CAPTURE · ESC TO PAUSE</span>
-				<span>GEMINI · viral_classifier · threshold ≥ 70</span>
+				<span>CLICK · ESC</span>
+				<span>GEMINI · viral</span>
 			</div>
 		</div>
 	);
+	return <IPhoneFrame orientation={orientation}>{inner}</IPhoneFrame>;
 }
 
 function Overlay({ children }: { children: React.ReactNode }) {
@@ -2050,7 +2068,7 @@ function MoodOverlay({
 }) {
 	return (
 		<div
-			className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
+			className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
 			style={{
 				background: `radial-gradient(ellipse at 60% 40%, ${mood.bgDeep} 0%, #000 80%)`,
 			}}
@@ -2166,10 +2184,18 @@ function HpStrip({
 	const frac = Math.max(0, Math.min(1, hp / max));
 	const color = frac < 0.25 ? mood.accent2 : mood.accent;
 	return (
-		<span className="flex items-center gap-2">
-			<span style={{ color: mood.inkDim }}>HP</span>
+		<div
+			className="flex w-full items-center gap-2"
+			style={{
+				fontFamily: FONT_MONO,
+				fontSize: 9,
+				letterSpacing: "0.18em",
+				color: mood.inkDim,
+			}}
+		>
+			<span>HP</span>
 			<span
-				className="relative h-1.5 w-32"
+				className="relative h-1 flex-1"
 				style={{ background: `${mood.inkDim}40` }}
 			>
 				<span
@@ -2177,20 +2203,19 @@ function HpStrip({
 					style={{
 						width: `${frac * 100}%`,
 						background: color,
-						boxShadow: `0 0 12px ${color}`,
+						boxShadow: `0 0 8px ${color}`,
 					}}
 				/>
 			</span>
 			<span
 				style={{
 					color: mood.ink,
-					fontFamily: FONT_MONO,
 					fontVariantNumeric: "tabular-nums",
 				}}
 			>
 				{hp}/{max}
 			</span>
-		</span>
+		</div>
 	);
 }
 
