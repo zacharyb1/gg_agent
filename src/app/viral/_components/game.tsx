@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditPlan } from "~/lib/ai-editor/types";
 import type { FeatureSnapshot, ViralMoment } from "~/lib/ai-editor/viral";
+import { FONT_DISPLAY, FONT_MONO, MOODS } from "./moods";
 import { createMusicEngine, type MusicEngine } from "./music";
 import { ViralOverlay } from "./Overlay";
 import { renderEdit } from "./renderEdit";
@@ -1788,95 +1789,169 @@ export default function Game() {
 		sfxRef.current?.ensureStarted();
 	};
 
+	const M = MOODS.menacing;
 	return (
 		<div
-			className="relative select-none rounded-2xl border border-neutral-800 bg-neutral-900 p-4 shadow-2xl"
-			style={{ width: ARENA_W + 32 }}
+			className="relative select-none"
+			style={{
+				width: ARENA_W + 32,
+				maxWidth: "100vw",
+				background: M.surface,
+				border: `1px solid ${M.inkDim}30`,
+				padding: 16,
+				color: M.ink,
+				fontFamily: "var(--font-sans), system-ui, sans-serif",
+				boxShadow: `0 30px 80px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02)`,
+			}}
 		>
-			<div className="mb-3 flex items-center justify-between text-neutral-200">
-				<div className="flex items-center gap-3">
-					<div className="rounded-lg bg-neutral-800 px-3 py-1.5 text-sm">
-						<span className="text-neutral-400">Wave </span>
-						<span className="font-bold text-white">{hud.wave}</span>
-					</div>
-					<div className="rounded-lg bg-neutral-800 px-3 py-1.5 text-sm">
-						<span className="text-neutral-400">Kills </span>
-						<span className="font-bold text-white">{hud.kills}</span>
-					</div>
-					<div className="rounded-lg bg-neutral-800 px-3 py-1.5 text-sm">
-						<span className="text-neutral-400">Squad </span>
-						<span className="font-bold text-white">
-							{hud.alliesAlive}/{hud.alliesTotal}
-						</span>
-					</div>
-				</div>
-				<div className="flex w-80 items-center gap-3">
+			<DeviceCorners color={M.accent} />
+			{/* HUD strip */}
+			<div
+				className="mb-3 flex items-center gap-4"
+				style={{
+					fontFamily: FONT_MONO,
+					fontSize: 11,
+					letterSpacing: "0.18em",
+					color: M.inkDim,
+				}}
+			>
+				<span
+					style={{
+						width: 8,
+						height: 8,
+						background: M.accent,
+						borderRadius: "50%",
+						boxShadow: `0 0 12px ${M.accent}`,
+					}}
+				/>
+				<span style={{ color: M.ink }}>VIRAL.LIVE</span>
+				<span>/</span>
+				<span>SQUAD-VS-ZOMBIES</span>
+				<span className="ml-auto flex items-center gap-5">
+					<HudStat label="WAVE" value={String(hud.wave).padStart(2, "0")} mood={M} />
+					<HudStat label="KILLS" value={String(hud.kills).padStart(3, "0")} mood={M} />
+					<HudStat
+						label="SQUAD"
+						value={`${hud.alliesAlive}/${hud.alliesTotal}`}
+						mood={M}
+					/>
+					<HpStrip hp={hud.hp} max={hud.maxHp} mood={M} />
 					<button
 						aria-label={muted ? "Unmute music" : "Mute music"}
-						className="rounded-lg bg-neutral-800 px-2.5 py-1.5 text-neutral-300 text-xs transition hover:bg-neutral-700 hover:text-white"
+						className="cursor-pointer"
 						onClick={() => setMuted((m) => !m)}
+						style={{
+							fontFamily: FONT_MONO,
+							fontSize: 10,
+							letterSpacing: "0.2em",
+							color: muted ? M.inkDim : M.accent,
+							background: "transparent",
+							border: `1px solid ${M.inkDim}40`,
+							padding: "4px 10px",
+						}}
 						type="button"
 					>
-						{muted ? "♪ off" : "♪ on"}
+						♪ {muted ? "OFF" : "ON"}
 					</button>
-					<span className="text-neutral-400 text-xs uppercase tracking-wider">
-						HP
-					</span>
-					<div className="relative h-3 flex-1 overflow-hidden rounded-full bg-neutral-800">
-						<div
-							className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-lime-400 transition-[width] duration-150"
-							style={{ width: `${(hud.hp / hud.maxHp) * 100}%` }}
-						/>
-					</div>
-					<span className="w-12 text-right font-semibold text-sm tabular-nums">
-						{hud.hp}/{hud.maxHp}
-					</span>
-				</div>
+				</span>
 			</div>
 
 			<div className="relative" style={{ width: ARENA_W, height: ARENA_H }}>
 				<canvas
-					className="block rounded-lg"
+					className="block"
 					ref={canvasRef}
 					style={{
 						width: ARENA_W,
 						height: ARENA_H,
 						cursor: hud.phase === "playing" && !hud.paused ? "none" : "default",
+						filter:
+							hud.phase === "playing"
+								? "saturate(0.92) contrast(1.06) brightness(0.98)"
+								: "saturate(0.5) brightness(0.7)",
 					}}
 				/>
 
 				{hud.phase === "menu" && (
-					<Overlay>
-						<h1 className="mb-2 font-extrabold text-4xl text-white tracking-tight">
-							SQUAD <span className="text-emerald-400">vs</span> ZOMBIES
-						</h1>
-						<p className="mb-6 max-w-md text-center text-neutral-300 text-sm">
-							You and your squad of three hold the arena against endless waves
-							of the undead.
-						</p>
-						<div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-1 text-neutral-300 text-sm">
-							<div>
-								<span className="font-semibold text-white">WASD</span> — move
+					<MoodOverlay mood={M}>
+						<div className="text-center">
+							<div
+								style={{
+									fontFamily: FONT_MONO,
+									fontSize: 11,
+									letterSpacing: "0.3em",
+									color: M.inkDim,
+									marginBottom: 18,
+								}}
+							>
+								MISSION 01 · DEFEND
 							</div>
-							<div>
-								<span className="font-semibold text-white">Mouse</span> — aim
+							<h1
+								style={{
+									fontFamily: FONT_DISPLAY,
+									fontSize: "min(140px, 11vw)",
+									lineHeight: 0.85,
+									color: M.ink,
+									margin: 0,
+									letterSpacing: "-0.01em",
+								}}
+							>
+								SQUAD <span style={{ color: M.accent, fontStyle: "italic" }}>VS</span> ZOMBIES
+							</h1>
+							<p
+								className="mx-auto mt-6"
+								style={{
+									fontFamily: "var(--font-sans), system-ui, sans-serif",
+									fontSize: 14,
+									color: M.inkDim,
+									maxWidth: 480,
+									lineHeight: 1.55,
+								}}
+							>
+								Hold the arena. The model is watching for clutch moments — go
+								for them.
+							</p>
+							<div
+								className="mx-auto mt-7 grid grid-cols-2 gap-x-10 gap-y-1.5"
+								style={{
+									fontFamily: FONT_MONO,
+									fontSize: 11,
+									letterSpacing: "0.18em",
+									color: M.inkDim,
+									maxWidth: 380,
+								}}
+							>
+								<div>
+									<span style={{ color: M.ink }}>WASD</span> — MOVE
+								</div>
+								<div>
+									<span style={{ color: M.ink }}>MOUSE</span> — AIM
+								</div>
+								<div>
+									<span style={{ color: M.ink }}>LMB</span> — FIRE
+								</div>
+								<div>
+									<span style={{ color: M.ink }}>ESC</span> — PAUSE
+								</div>
 							</div>
-							<div>
-								<span className="font-semibold text-white">Left Click</span> —
-								fire
-							</div>
-							<div>
-								<span className="font-semibold text-white">Esc</span> — pause
-							</div>
+							<button
+								className="mt-10 cursor-pointer"
+								onClick={startGame}
+								style={{
+									fontFamily: FONT_DISPLAY,
+									fontSize: 36,
+									letterSpacing: "0.04em",
+									background: M.accent,
+									color: "#000",
+									border: "none",
+									padding: "16px 56px",
+									boxShadow: `0 0 40px ${M.accent}80`,
+								}}
+								type="button"
+							>
+								DEPLOY →
+							</button>
 						</div>
-						<button
-							className="rounded-xl bg-emerald-500 px-8 py-3 font-bold text-neutral-900 shadow-lg transition hover:bg-emerald-400 active:scale-95"
-							onClick={startGame}
-							type="button"
-						>
-							DEPLOY
-						</button>
-					</Overlay>
+					</MoodOverlay>
 				)}
 
 				{hud.phase === "gameover" && (
@@ -1892,22 +1967,68 @@ export default function Game() {
 				)}
 
 				{hud.phase === "playing" && hud.paused && (
-					<Overlay>
-						<h1 className="mb-4 font-extrabold text-4xl text-white">PAUSED</h1>
+					<MoodOverlay mood={M}>
+						<div className="text-center">
+							<div
+								style={{
+									fontFamily: FONT_MONO,
+									fontSize: 11,
+									letterSpacing: "0.3em",
+									color: M.inkDim,
+									marginBottom: 18,
+								}}
+							>
+								STATE / PAUSED
+							</div>
+							<h1
+								style={{
+									fontFamily: FONT_DISPLAY,
+									fontSize: "min(180px, 14vw)",
+									lineHeight: 0.85,
+									color: M.ink,
+									margin: 0,
+								}}
+							>
+								<span style={{ color: M.accent, fontStyle: "italic" }}>
+									STAND
+								</span>
+								<br />
+								BY.
+							</h1>
+						</div>
 						<button
-							className="rounded-xl bg-emerald-500 px-8 py-3 font-bold text-neutral-900 shadow-lg transition hover:bg-emerald-400 active:scale-95"
+							className="mt-10 cursor-pointer"
 							onClick={resume}
+							style={{
+								fontFamily: FONT_DISPLAY,
+								fontSize: 32,
+								letterSpacing: "0.04em",
+								background: M.accent,
+								color: "#000",
+								border: "none",
+								padding: "14px 48px",
+								boxShadow: `0 0 40px ${M.accent}80`,
+							}}
 							type="button"
 						>
 							RESUME
 						</button>
-					</Overlay>
+					</MoodOverlay>
 				)}
 			</div>
 
-			<p className="mt-3 text-center text-neutral-500 text-xs">
-				Click the arena to capture controls. Press Esc to pause.
-			</p>
+			<div
+				className="mt-3 flex items-center justify-between"
+				style={{
+					fontFamily: FONT_MONO,
+					fontSize: 10,
+					letterSpacing: "0.18em",
+					color: M.inkDim,
+				}}
+			>
+				<span>CLICK TO CAPTURE · ESC TO PAUSE</span>
+				<span>GEMINI · viral_classifier · threshold ≥ 70</span>
+			</div>
 		</div>
 	);
 }
@@ -1917,6 +2038,159 @@ function Overlay({ children }: { children: React.ReactNode }) {
 		<div className="absolute inset-0 flex flex-col items-center justify-center overflow-y-auto rounded-lg bg-black/75 px-4 py-6 backdrop-blur-sm">
 			{children}
 		</div>
+	);
+}
+
+function MoodOverlay({
+	mood,
+	children,
+}: {
+	mood: (typeof MOODS)[keyof typeof MOODS];
+	children: React.ReactNode;
+}) {
+	return (
+		<div
+			className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden px-6 py-8"
+			style={{
+				background: `radial-gradient(ellipse at 60% 40%, ${mood.bgDeep} 0%, #000 80%)`,
+			}}
+		>
+			{/* corner brackets */}
+			{(["tl", "tr", "bl", "br"] as const).map((p) => {
+				const flip =
+					(p.includes("r") ? "scaleX(-1) " : "") +
+					(p.includes("b") ? "scaleY(-1)" : "");
+				const pos =
+					p === "tl"
+						? { top: 16, left: 16 }
+						: p === "tr"
+							? { top: 16, right: 16 }
+							: p === "bl"
+								? { bottom: 16, left: 16 }
+								: { bottom: 16, right: 16 };
+				return (
+					<svg
+						className="absolute"
+						height={20}
+						key={p}
+						style={{ ...pos, transform: flip }}
+						width={20}
+					>
+						<title>corner</title>
+						<path
+							d="M0 8 L0 0 L8 0"
+							fill="none"
+							stroke={mood.accent}
+							strokeWidth={1.5}
+						/>
+					</svg>
+				);
+			})}
+			<div
+				className="pointer-events-none absolute"
+				style={{
+					inset: 0,
+					background: `linear-gradient(180deg, transparent 0%, ${mood.surface}30 50%, transparent 100%)`,
+				}}
+			/>
+			<div className="relative">{children}</div>
+		</div>
+	);
+}
+
+function DeviceCorners({ color }: { color: string }) {
+	return (
+		<>
+			{(["tl", "tr", "bl", "br"] as const).map((p) => {
+				const flip =
+					(p.includes("r") ? "scaleX(-1) " : "") +
+					(p.includes("b") ? "scaleY(-1)" : "");
+				const pos =
+					p === "tl"
+						? { top: 6, left: 6 }
+						: p === "tr"
+							? { top: 6, right: 6 }
+							: p === "bl"
+								? { bottom: 6, left: 6 }
+								: { bottom: 6, right: 6 };
+				return (
+					<svg
+						className="absolute"
+						height={14}
+						key={p}
+						style={{ ...pos, transform: flip }}
+						width={14}
+					>
+						<title>device-corner</title>
+						<path
+							d="M0 6 L0 0 L6 0"
+							fill="none"
+							stroke={color}
+							strokeWidth={1.5}
+						/>
+					</svg>
+				);
+			})}
+		</>
+	);
+}
+
+function HudStat({
+	label,
+	value,
+	mood,
+}: {
+	label: string;
+	value: string;
+	mood: (typeof MOODS)[keyof typeof MOODS];
+}) {
+	return (
+		<span className="flex items-baseline gap-2">
+			<span style={{ color: mood.inkDim }}>{label}</span>
+			<span style={{ color: mood.ink, fontFamily: FONT_DISPLAY, fontSize: 20, lineHeight: 1 }}>
+				{value}
+			</span>
+		</span>
+	);
+}
+
+function HpStrip({
+	hp,
+	max,
+	mood,
+}: {
+	hp: number;
+	max: number;
+	mood: (typeof MOODS)[keyof typeof MOODS];
+}) {
+	const frac = Math.max(0, Math.min(1, hp / max));
+	const color = frac < 0.25 ? mood.accent2 : mood.accent;
+	return (
+		<span className="flex items-center gap-2">
+			<span style={{ color: mood.inkDim }}>HP</span>
+			<span
+				className="relative h-1.5 w-32"
+				style={{ background: `${mood.inkDim}40` }}
+			>
+				<span
+					className="absolute top-0 left-0 h-full"
+					style={{
+						width: `${frac * 100}%`,
+						background: color,
+						boxShadow: `0 0 12px ${color}`,
+					}}
+				/>
+			</span>
+			<span
+				style={{
+					color: mood.ink,
+					fontFamily: FONT_MONO,
+					fontVariantNumeric: "tabular-nums",
+				}}
+			>
+				{hp}/{max}
+			</span>
+		</span>
 	);
 }
 
