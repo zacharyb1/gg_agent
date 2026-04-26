@@ -283,6 +283,7 @@ function Detecting({
 							color: mood.inkDim,
 							letterSpacing: "0.2em",
 							marginBottom: 8,
+							animation: "viral-pulse 1.6s ease-in-out infinite",
 						}}
 					>
 						EVENTS · {matchSummary.eventCount} · {matchSummary.snapshotCount}
@@ -295,12 +296,21 @@ function Detecting({
 							color: mood.ink,
 							margin: 0,
 							letterSpacing: "0.01em",
+							animation: "viral-rise 700ms ease-out 50ms backwards",
 						}}
 					>
 						THE MODEL
 						<br />
 						IS{" "}
-						<span style={{ color: mood.accent, fontStyle: "italic" }}>
+						<span
+							style={{
+								color: mood.accent,
+								fontStyle: "italic",
+								display: "inline-block",
+								animation:
+									"viral-scale-in 700ms cubic-bezier(.22,1.4,.36,1) 350ms backwards",
+							}}
+						>
 							WATCHING.
 						</span>
 					</h1>
@@ -421,7 +431,12 @@ function NoViral({
 							style={{
 								height: h,
 								background: mood.inkDim,
-								opacity: 0.5,
+								opacity: 0,
+								animation: `viral-bar-grow 400ms ease-out ${
+									200 + i * 18
+								}ms forwards, viral-fade-in 200ms ease-out ${
+									200 + i * 18
+								}ms forwards`,
 							}}
 						/>
 					))}
@@ -515,9 +530,27 @@ function MoodSwatches({ mood }: { mood: MoodToken }) {
 	const dotStyle = { width: 10, height: 10 };
 	return (
 		<div className="absolute top-3 right-3 flex items-center gap-1">
-			<span style={{ ...dotStyle, background: mood.accent }} />
-			<span style={{ ...dotStyle, background: mood.accent2 }} />
-			<span style={{ ...dotStyle, background: mood.ink }} />
+			<span
+				style={{
+					...dotStyle,
+					background: mood.accent,
+					animation: "viral-pulse 1.6s ease-in-out infinite",
+				}}
+			/>
+			<span
+				style={{
+					...dotStyle,
+					background: mood.accent2,
+					animation: "viral-pulse 1.6s ease-in-out 0.2s infinite",
+				}}
+			/>
+			<span
+				style={{
+					...dotStyle,
+					background: mood.ink,
+					animation: "viral-pulse 1.6s ease-in-out 0.4s infinite",
+				}}
+			/>
 		</div>
 	);
 }
@@ -531,6 +564,7 @@ function MoodTag({ mood }: { mood: MoodToken }) {
 				fontSize: 10,
 				letterSpacing: "0.22em",
 				color: mood.inkDim,
+				animation: "viral-fade-in 600ms ease-out 100ms backwards",
 			}}
 		>
 			MOOD={mood.name}
@@ -552,6 +586,8 @@ function HugeMoodBg({ mood }: { mood: MoodToken }) {
 				letterSpacing: "-0.02em",
 				fontStyle: mood.italic ? "italic" : "normal",
 				whiteSpace: "nowrap",
+				animation:
+					"viral-fade-in 1200ms ease-out 200ms backwards, viral-drift 14s ease-in-out 200ms infinite",
 			}}
 		>
 			{mood.name}
@@ -586,6 +622,7 @@ function Verdict({
 							letterSpacing: "0.32em",
 							color: mood.inkDim,
 							marginBottom: 8,
+							animation: "viral-rise 500ms ease-out 50ms backwards",
 						}}
 					>
 						VERDICT — VIRAL
@@ -601,16 +638,44 @@ function Verdict({
 							fontStyle: mood.italic ? "italic" : "normal",
 						}}
 					>
-						YOUR{" "}
-						<span style={{ color: mood.accent }}>{mood.name}</span>
+						<span
+							style={{
+								display: "inline-block",
+								animation: "viral-rise 600ms ease-out 200ms backwards",
+							}}
+						>
+							YOUR
+						</span>{" "}
+						<span
+							style={{
+								display: "inline-block",
+								color: mood.accent,
+								animation:
+									"viral-scale-in 700ms cubic-bezier(.22,1.4,.36,1) 350ms backwards",
+							}}
+						>
+							{mood.name}
+						</span>
 						<br />
-						CUT IS READY.
+						<span
+							style={{
+								display: "inline-block",
+								animation: "viral-rise 600ms ease-out 500ms backwards",
+							}}
+						>
+							CUT IS READY.
+						</span>
 					</h1>
 				</div>
 			</div>
 
 			{/* CTA + tagline */}
-			<div className="relative flex flex-wrap items-center gap-3">
+			<div
+				className="relative flex flex-wrap items-center gap-3"
+				style={{
+					animation: "viral-rise 600ms ease-out 700ms backwards",
+				}}
+			>
 				<button
 					className="flex items-center gap-2"
 					onClick={onMakeClip}
@@ -624,6 +689,7 @@ function Verdict({
 						border: "none",
 						cursor: "pointer",
 						boxShadow: `0 0 50px ${mood.accent}80`,
+						animation: "viral-glow-cta 2.4s ease-in-out 1.2s infinite",
 					}}
 					type="button"
 				>
@@ -687,6 +753,7 @@ function Cooking({
 						letterSpacing: "0.32em",
 						color: mood.inkDim,
 						marginBottom: 14,
+						animation: "viral-pulse 1.4s ease-in-out infinite",
 					}}
 				>
 					{progressLabel}
@@ -699,10 +766,21 @@ function Cooking({
 						lineHeight: 0.86,
 						color: mood.ink,
 						fontStyle: mood.italic ? "italic" : "normal",
+						animation:
+							"viral-rise 700ms cubic-bezier(.22,1,.36,1) 50ms backwards",
 					}}
 				>
 					CUTTING YOUR{" "}
-					<span style={{ color: mood.accent }}>{mood.name}</span>{" "}
+					<span
+						style={{
+							color: mood.accent,
+							display: "inline-block",
+							animation:
+								"viral-scale-in 700ms cubic-bezier(.22,1.4,.36,1) 250ms backwards",
+						}}
+					>
+						{mood.name}
+					</span>{" "}
 					CUT.
 				</div>
 			</div>
@@ -763,6 +841,33 @@ function Cooking({
 	);
 }
 
+async function shareClip(blobUrl: string, mood: MoodToken) {
+	try {
+		const res = await fetch(blobUrl);
+		const blob = await res.blob();
+		const file = new File([blob], "brrawl-clip.webm", {
+			type: "video/webm",
+		});
+		const shareData = {
+			files: [file],
+			title: "Viral clip",
+			text: `#brrawl #${mood.name.toLowerCase()} #phonk #edit`,
+		};
+		if (
+			typeof navigator !== "undefined" &&
+			"canShare" in navigator &&
+			navigator.canShare?.(shareData)
+		) {
+			await navigator.share(shareData);
+			return;
+		}
+	} catch (err) {
+		console.warn("[viral] share failed:", err);
+	}
+	// Fallback — open the blob in a new tab so user can copy or save.
+	if (typeof window !== "undefined") window.open(blobUrl, "_blank");
+}
+
 function Final({
 	mood,
 	moments,
@@ -780,8 +885,13 @@ function Final({
 			<MoodSwatches mood={mood} />
 			<HugeMoodBg mood={mood} />
 
-			<div className="relative flex w-full flex-wrap items-center justify-center gap-1.5">
-				{moments.map((m) => (
+			<div
+				className="relative flex w-full flex-wrap items-center justify-center gap-1.5"
+				style={{
+					animation: "viral-rise 600ms ease-out 100ms backwards",
+				}}
+			>
+				{moments.map((m, i) => (
 					<span
 						key={m.eventIndex}
 						style={{
@@ -791,6 +901,10 @@ function Final({
 							background: mood.accent,
 							color: "#000",
 							padding: "3px 8px",
+							opacity: 0,
+							animation: `viral-rise 500ms ease-out ${
+								200 + i * 100
+							}ms backwards`,
 						}}
 					>
 						{m.label}
@@ -798,13 +912,20 @@ function Final({
 				))}
 			</div>
 
-			<div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+			<div
+				className="relative flex min-h-0 w-full flex-1 items-center justify-center"
+				style={{
+					animation:
+						"viral-scale-in 700ms cubic-bezier(.22,1,.36,1) 200ms backwards",
+				}}
+			>
 				<div
 					className="relative h-full"
 					style={{
 						aspectRatio: "9 / 16",
 						maxWidth: "100%",
 						boxShadow: mood.glow,
+						animation: "viral-breathe 4s ease-in-out 1.5s infinite",
 					}}
 				>
 					{videoBlobUrl && (
@@ -822,11 +943,15 @@ function Final({
 				</div>
 			</div>
 
-			<div className="relative flex w-full items-center justify-center gap-2">
-				<a
+			<div
+				className="relative flex w-full items-center justify-center gap-2"
+				style={{
+					animation: "viral-rise 600ms ease-out 600ms backwards",
+				}}
+			>
+				<button
 					className="flex items-center gap-2"
-					download="brrawl-clip.webm"
-					href={videoBlobUrl}
+					onClick={() => videoBlobUrl && void shareClip(videoBlobUrl, mood)}
 					style={{
 						fontFamily: FONT_DISPLAY,
 						fontSize: "clamp(22px, 3vw, 32px)",
@@ -835,13 +960,15 @@ function Final({
 						color: "#000",
 						padding: "10px 26px",
 						cursor: "pointer",
+						border: "none",
 						boxShadow: `0 0 40px ${mood.accent}80`,
-						textDecoration: "none",
+						animation: "viral-glow-cta 2.4s ease-in-out infinite",
 					}}
+					type="button"
 				>
-					<span>SAVE CLIP</span>
-					<span>↓</span>
-				</a>
+					<span>SHARE CLIP</span>
+					<span>↗</span>
+				</button>
 				<button
 					type="button"
 					onClick={onAgain}
