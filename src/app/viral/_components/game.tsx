@@ -1802,18 +1802,40 @@ export default function Game() {
 			: "landscape";
 	const inner = (
 		<div
-			className="relative flex h-full w-full select-none flex-col overflow-hidden"
+			className="relative h-full w-full select-none overflow-hidden"
 			style={{
 				background: M.surface,
-				padding: "8px 12px",
 				color: M.ink,
 				fontFamily: "var(--font-sans), system-ui, sans-serif",
 				borderRadius: 38,
 			}}
 		>
+			{/* Map fills the entire screen edge-to-edge */}
+			<canvas
+				className="absolute inset-0 block h-full w-full"
+				ref={canvasRef}
+				style={{
+					cursor:
+						hud.phase === "playing" && !hud.paused ? "none" : "default",
+					filter:
+						hud.phase === "playing"
+							? "saturate(0.92) contrast(1.06) brightness(0.98)"
+							: "saturate(0.5) brightness(0.7)",
+					borderRadius: 38,
+				}}
+			/>
+
 			<DeviceCorners color={M.accent} />
-			{/* HUD — portrait layout: top row label + mute, second row stats + HP */}
-			<div className="mb-2 flex flex-col gap-1.5">
+
+			{/* HUD overlay — top, with safe padding so text clears the rounded corners */}
+			<div
+				className="pointer-events-none absolute top-0 right-0 left-0 flex flex-col gap-1.5"
+				style={{
+					padding: "10px 24px 18px",
+					background:
+						"linear-gradient(180deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)",
+				}}
+			>
 				<div
 					className="flex items-center gap-2"
 					style={{
@@ -1833,7 +1855,7 @@ export default function Game() {
 						}}
 					/>
 					<span style={{ color: M.ink }}>VIRAL.LIVE</span>
-					<span className="ml-auto">
+					<span className="pointer-events-auto ml-auto">
 						<button
 							aria-label={muted ? "Unmute music" : "Mute music"}
 							className="cursor-pointer"
@@ -1843,7 +1865,7 @@ export default function Game() {
 								fontSize: 9,
 								letterSpacing: "0.2em",
 								color: muted ? M.inkDim : M.accent,
-								background: "transparent",
+								background: "rgba(0,0,0,0.5)",
 								border: `1px solid ${M.inkDim}40`,
 								padding: "2px 8px",
 							}}
@@ -1854,8 +1876,16 @@ export default function Game() {
 					</span>
 				</div>
 				<div className="flex items-center justify-between gap-2">
-					<HudStat label="WAVE" value={String(hud.wave).padStart(2, "0")} mood={M} />
-					<HudStat label="KILLS" value={String(hud.kills).padStart(3, "0")} mood={M} />
+					<HudStat
+						label="WAVE"
+						value={String(hud.wave).padStart(2, "0")}
+						mood={M}
+					/>
+					<HudStat
+						label="KILLS"
+						value={String(hud.kills).padStart(3, "0")}
+						mood={M}
+					/>
 					<HudStat
 						label="SQUAD"
 						value={`${hud.alliesAlive}/${hud.alliesTotal}`}
@@ -1863,33 +1893,6 @@ export default function Game() {
 					/>
 				</div>
 				<HpStrip hp={hud.hp} max={hud.maxHp} mood={M} />
-			</div>
-
-			<div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-				<div
-					className="relative overflow-hidden"
-					style={{
-						height: "100%",
-						aspectRatio: `${ARENA_W} / ${ARENA_H}`,
-						maxWidth: "100%",
-						borderRadius: 18,
-						boxShadow: `inset 0 0 0 1px ${M.inkDim}30`,
-					}}
-				>
-					<canvas
-						className="absolute inset-0 block h-full w-full"
-						ref={canvasRef}
-						style={{
-							cursor:
-								hud.phase === "playing" && !hud.paused ? "none" : "default",
-							filter:
-								hud.phase === "playing"
-									? "saturate(0.92) contrast(1.06) brightness(0.98)"
-									: "saturate(0.5) brightness(0.7)",
-							borderRadius: 18,
-						}}
-					/>
-				</div>
 			</div>
 
 			{/* Full-screen overlays — cover everything inside the phone */}
@@ -2039,12 +2042,15 @@ export default function Game() {
 				)}
 
 			<div
-				className="mt-2 flex items-center justify-between"
+				className="pointer-events-none absolute right-0 bottom-0 left-0 flex items-center justify-between"
 				style={{
+					padding: "12px 24px 14px",
 					fontFamily: FONT_MONO,
 					fontSize: 8,
 					letterSpacing: "0.18em",
 					color: M.inkDim,
+					background:
+						"linear-gradient(0deg, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 100%)",
 				}}
 			>
 				<span>CLICK · ESC</span>
