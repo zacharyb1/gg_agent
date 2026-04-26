@@ -184,6 +184,131 @@ async function waitFrame(): Promise<void> {
 	return new Promise((r) => requestAnimationFrame(() => r()));
 }
 
+const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+
+function easeOutBack(t: number): number {
+	const c1 = 1.70158;
+	const c3 = c1 + 1;
+	return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
+}
+
+function drawHookVignette(ctx: CanvasRenderingContext2D, t01: number) {
+	const vg = ctx.createRadialGradient(
+		W / 2,
+		H / 2,
+		Math.min(W, H) * 0.18,
+		W / 2,
+		H / 2,
+		Math.max(W, H) * 0.7,
+	);
+	vg.addColorStop(0, "rgba(0,0,0,0)");
+	vg.addColorStop(1, `rgba(0,0,0,${0.55 + t01 * 0.25})`);
+	ctx.fillStyle = vg;
+	ctx.fillRect(0, 0, W, H);
+}
+
+function drawHookTag(ctx: CanvasRenderingContext2D, mood: string, accent: string) {
+	ctx.save();
+	ctx.font = "bold 16px monospace";
+	ctx.textBaseline = "top";
+	ctx.textAlign = "left";
+	const label = `VIRAL.LIVE / ${mood.toUpperCase()}`;
+	const padX = 14;
+	const padY = 8;
+	const tx = 24;
+	const ty = H * 0.14;
+	const w = ctx.measureText(label).width + padX * 2;
+	ctx.fillStyle = "rgba(0,0,0,0.6)";
+	ctx.fillRect(tx, ty, w, 32);
+	ctx.fillStyle = accent;
+	ctx.fillRect(tx, ty, 4, 32);
+	ctx.fillStyle = "rgba(255,255,255,0.92)";
+	ctx.fillText(label, tx + padX, ty + padY);
+	ctx.restore();
+}
+
+function drawLightStreak(
+	ctx: CanvasRenderingContext2D,
+	t01: number,
+	accent: string,
+) {
+	const eased = clamp01(t01);
+	const x = -W * 0.4 + eased * (W + W * 0.8);
+	const streakH = 14;
+	const cy = H / 2;
+	ctx.save();
+	ctx.globalCompositeOperation = "lighter";
+	// Outer glow halo
+	const glow = ctx.createRadialGradient(x, cy, 0, x, cy, W * 0.55);
+	glow.addColorStop(0, accent);
+	glow.addColorStop(0.18, "rgba(255,240,210,0.55)");
+	glow.addColorStop(1, "rgba(0,0,0,0)");
+	ctx.globalAlpha = 0.85 * Math.sin(eased * Math.PI);
+	ctx.fillStyle = glow;
+	ctx.fillRect(0, cy - H * 0.4, W, H * 0.8);
+	// Bright core bar with motion blur
+	ctx.globalAlpha = 1;
+	ctx.filter = "blur(6px)";
+	ctx.fillStyle = "#fff";
+	ctx.fillRect(x - W * 0.6, cy - streakH / 2, W * 1.2, streakH);
+	ctx.filter = "none";
+	// Sharp center line
+	ctx.fillStyle = "rgba(255,255,255,0.9)";
+	ctx.fillRect(x - W * 0.5, cy - 1, W, 2);
+	ctx.restore();
+}
+
+function drawBrandMark(
+	ctx: CanvasRenderingContext2D,
+	wordmark: string,
+	subtitle: string,
+	accent: string,
+	revealT: number,
+	pulse: number,
+) {
+	const eased = easeOutBack(clamp01(revealT));
+	const scale = 0.85 + eased * 0.15;
+	const finalScale = scale * pulse;
+	const alpha = clamp01(revealT * 1.4);
+
+	ctx.save();
+	ctx.translate(W / 2, H / 2);
+	ctx.scale(finalScale, finalScale);
+	ctx.globalAlpha = alpha;
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+
+	// Wordmark with glow
+	const wmFont = `900 italic 110px "Trebuchet MS", system-ui, sans-serif`;
+	ctx.font = wmFont;
+	ctx.shadowColor = accent;
+	ctx.shadowBlur = 40 + pulse * 18;
+	ctx.lineWidth = 10;
+	ctx.strokeStyle = "#0d0d1a";
+	ctx.strokeText(wordmark, 0, -8);
+	ctx.fillStyle = "#fff";
+	ctx.fillText(wordmark, 0, -8);
+	ctx.shadowBlur = 0;
+
+	// Accent underline draws across
+	const wmW = ctx.measureText(wordmark).width;
+	const lineW = wmW * clamp01(revealT * 1.6);
+	ctx.fillStyle = accent;
+	ctx.fillRect(-lineW / 2, 56, lineW, 6);
+
+	// Subtitle (plan.outro line) — tighter, smaller, accent parsing
+	ctx.font = `800 26px "Trebuchet MS", system-ui, sans-serif`;
+	ctx.globalAlpha = alpha * 0.95;
+	const cleanSub = subtitle.replace(/[\[\]]/g, "");
+	ctx.lineWidth = 5;
+	ctx.strokeStyle = "#0d0d1a";
+	ctx.strokeText(cleanSub, 0, 110);
+	ctx.fillStyle = "#fff";
+	ctx.fillText(cleanSub, 0, 110);
+
+	ctx.restore();
+}
+
 async function seekVideo(video: HTMLVideoElement, t: number): Promise<void> {
 	const target = Math.max(0, Math.min(video.duration - 0.1, t));
 	video.currentTime = target;
